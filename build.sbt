@@ -89,6 +89,7 @@ lazy val root = (project in file("."))
       "com.knuddels"   % "jtokkit"         % "1.1.0",
       "com.lihaoyi"   %% "upickle"         % "4.1.0",
       "com.lihaoyi"   %% "requests"        % "0.9.0",
+      "org.java-websocket" % "Java-WebSocket" % "1.5.3",
       "org.scalatest" %% "scalatest"       % "3.2.19" % Test
     )
   )
@@ -112,13 +113,14 @@ lazy val workspaceRunner = (project in file("workspaceRunner"))
     Docker / maintainer := "llm4s",
     dockerExposedPorts  := Seq(8080),
     dockerBaseImage     := "eclipse-temurin:21-jdk",
-//    Compile / mainClass := Some("com.llm4s.runner.RunnerMain"),
+    Compile / mainClass := Some("org.llm4s.runner.RunnerMain"),
     name := "workspace-runner",
     commonSettings,
     libraryDependencies ++= List(
       "ch.qos.logback" % "logback-classic" % "1.5.18",
       "com.lihaoyi"   %% "upickle"         % "4.2.1",
       "com.lihaoyi"   %% "cask"            % "0.9.7",
+      "com.lihaoyi"   %% "requests"        % "0.9.0",
       "org.scalatest" %% "scalatest"       % "3.2.19" % Test
     ),
     Docker / dockerBuildOptions := Seq("--platform=linux/amd64"),

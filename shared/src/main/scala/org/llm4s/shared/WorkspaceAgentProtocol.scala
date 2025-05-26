@@ -313,3 +313,96 @@ case class GetWorkspaceInfoResponse(
 object GetWorkspaceInfoResponse {
   implicit val rw: ReadWriter[GetWorkspaceInfoResponse] = macroRW
 }
+
+// WebSocket Protocol Messages
+sealed trait WebSocketMessage
+
+object WebSocketMessage {
+  implicit val rw: ReadWriter[WebSocketMessage] = ReadWriter.merge(
+    macroRW[CommandMessage],
+    macroRW[ResponseMessage],
+    macroRW[HeartbeatMessage],
+    macroRW[HeartbeatResponseMessage],
+    macroRW[StreamingOutputMessage],
+    macroRW[CommandStartedMessage],
+    macroRW[CommandCompletedMessage],
+    macroRW[ErrorMessage]
+  )
+}
+
+// Client to Server Messages
+case class CommandMessage(
+  command: WorkspaceAgentCommand
+) extends WebSocketMessage
+
+object CommandMessage {
+  implicit val rw: ReadWriter[CommandMessage] = macroRW
+}
+
+case class HeartbeatMessage(
+  timestamp: Long = System.currentTimeMillis()
+) extends WebSocketMessage
+
+object HeartbeatMessage {
+  implicit val rw: ReadWriter[HeartbeatMessage] = macroRW
+}
+
+// Server to Client Messages
+case class ResponseMessage(
+  response: WorkspaceAgentResponse
+) extends WebSocketMessage
+
+object ResponseMessage {
+  implicit val rw: ReadWriter[ResponseMessage] = macroRW
+}
+
+case class HeartbeatResponseMessage(
+  timestamp: Long = System.currentTimeMillis()
+) extends WebSocketMessage
+
+object HeartbeatResponseMessage {
+  implicit val rw: ReadWriter[HeartbeatResponseMessage] = macroRW
+}
+
+// Streaming command output (for long-running commands)
+case class StreamingOutputMessage(
+  commandId: String,
+  outputType: String, // "stdout" or "stderr"
+  content: String,
+  isComplete: Boolean = false
+) extends WebSocketMessage
+
+object StreamingOutputMessage {
+  implicit val rw: ReadWriter[StreamingOutputMessage] = macroRW
+}
+
+// Command lifecycle messages
+case class CommandStartedMessage(
+  commandId: String,
+  command: String
+) extends WebSocketMessage
+
+object CommandStartedMessage {
+  implicit val rw: ReadWriter[CommandStartedMessage] = macroRW
+}
+
+case class CommandCompletedMessage(
+  commandId: String,
+  exitCode: Int,
+  durationMs: Long
+) extends WebSocketMessage
+
+object CommandCompletedMessage {
+  implicit val rw: ReadWriter[CommandCompletedMessage] = macroRW
+}
+
+// Generic error message
+case class ErrorMessage(
+  error: String,
+  code: String,
+  commandId: Option[String] = None
+) extends WebSocketMessage
+
+object ErrorMessage {
+  implicit val rw: ReadWriter[ErrorMessage] = macroRW
+}
