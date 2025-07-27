@@ -356,6 +356,52 @@ Stay updated with talks, workshops, and presentations about **LLM4S** happening 
 - Contribute to a project that offers you the opportunity to become a mentor or contributor funded by Google through its [Google Summer of Code (GSoC)](https://summerofcode.withgoogle.com/) program.
 - Join a global developer community focused on type-safe, maintainable AI systems.
 
+## Continuous Integration (CI)
+
+LLM4S uses GitHub Actions for continuous integration to ensure code quality and compatibility across different platforms and Scala versions.
+
+### CI Workflows
+
+#### Main CI Pipeline (`ci.yml`)
+Our unified CI workflow runs on every push and pull request to main/master branches:
+
+- **Quick Checks**: Fast-failing checks for code formatting and compilation
+- **Cross-Platform Testing**: Tests run on Ubuntu and Windows with Scala 2.13.16 and 3.7.1
+- **Template Validation**: Verifies the g8 template works correctly
+- **Caching**: Optimized caching strategy with Coursier for faster builds
+
+#### Claude Code Review (`claude-code-review.yml`)
+Automated AI-powered code review for pull requests:
+
+- **Automatic Reviews**: Trusted PRs get automatic Claude reviews
+- **Security**: External PRs require manual trigger by maintainers
+- **Manual Trigger**: Maintainers can request reviews with `@claude` comment
+
+#### Release Pipeline (`release.yml`)
+Automated release process triggered by version tags:
+
+- **Pre-release Checks**: Runs full CI suite before publishing
+- **GPG Signing**: Artifacts are signed for security
+- **Maven Central**: Publishes to Sonatype/Maven Central
+
+### Running CI Locally
+
+You can run the same checks locally before pushing:
+
+```bash
+# Check formatting
+sbt scalafmtCheckAll
+
+# Compile all Scala versions
+sbt +compile
+
+# Run all tests
+sbt +test
+
+# Full build (compile + test)
+sbt buildAll
+```
+
 ## Contributing
 
 Interested in contributing? Start here:
