@@ -6,6 +6,11 @@ on:
   issue_comment:
     types: [ created ]
 
+# Cancel in-progress Claude reviews for the same PR
+concurrency:
+  group: claude-review-${{ github.event.pull_request.number || github.event.issue.number }}
+  cancel-in-progress: true
+
 jobs:
   # Auto-review for trusted PRs
   claude-review-trusted:
@@ -18,6 +23,12 @@ jobs:
         github.event.pull_request.author_association == 'MEMBER' ||
         github.event.pull_request.author_association == 'OWNER'
       )
+
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: read
+      id-token: write
 
     uses: ./.github/workflows/claude.yml
     with:
@@ -43,31 +54,8 @@ jobs:
       pull-requests: write
 
     steps:
-      - name: Log External PR Info
-        run: |
-          echo "::notice::External PR detected - Claude review skipped for security"
-          echo "## 🔒 External PR - Claude review skipped for security reasons" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "This PR is from an external repository (\`${{ github.event.pull_request.head.repo.full_name }}\`)." >> $GITHUB_STEP_SUMMARY
-          echo "Automated Claude review is disabled for security reasons." >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### For Maintainers:" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "To get Claude review for this PR, comment \`@claude\` to trigger manual review via the regular workflow." >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Or, run:" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
-          echo "gh workflow run claude-code-review.yml -f pr_number=${{ github.event.pull_request.number }}" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-          echo "### PR Summary:" >> $GITHUB_STEP_SUMMARY
-          echo "- **Files changed:** ${{ github.event.pull_request.changed_files }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Additions:** +${{ github.event.pull_request.additions }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Deletions:** -${{ github.event.pull_request.deletions }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Author:** @${{ github.event.pull_request.user.login }}" >> $GITHUB_STEP_SUMMARY
-
       - name: Comment on External PR
         uses: actions/github-script@v7
-        continue-on-error: true
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
@@ -84,13 +72,26 @@ jobs:
             - Author: @${{ github.event.pull_request.user.login }}
             `;
             
-            await github.rest.issues.createComment({
+            // Check if we already commented
+            const { data: comments } = await github.rest.issues.listComments({
               issue_number: context.issue.number,
               owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: comment
+              repo: context.repo.repo
             });
-
+            
+            const hasComment = comments.some(comment => 
+              comment.user.login === 'github-actions[bot]' && 
+              comment.body.includes('Claude Code Review Status')
+            );
+            
+            if (!hasComment) {
+              await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: comment
+              });
+            }
 
   # Manual review via @claude comment
   claude-review-manual:
@@ -130,7 +131,6 @@ jobs:
             });
             
             core.setOutput('head_sha', pr.data.head.sha);
-            core.setOutput('is_external', pr.data.head.repo.full_name !== pr.data.base.repo.full_name);
             
             return pr.data;
 
@@ -147,12 +147,16 @@ jobs:
               content: 'rocket'
             });
 
-
-
   # Call reusable workflow for manual review
   claude-review-manual-execute:
     needs: claude-review-manual
     if: needs.claude-review-manual.result == 'success'
+    
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: read
+      id-token: write
     
     uses: ./.github/workflows/claude.yml
     with:
