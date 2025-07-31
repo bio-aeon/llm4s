@@ -32,12 +32,18 @@ import org.llm4s.llmconnect.model.EmbeddingRequest
 import org.llm4s.llmconnect.utils.{ ModelSelector, SimilarityUtils }
 =======
 import org.llm4s.llmconnect.model.{EmbeddingRequest, ExtractorError}
-import org.llm4s.llmconnect.utils.{ChunkingUtils, SimilarityUtils, LoggerUtils}
+import org.llm4s.llmconnect.utils.{ChunkingUtils, SimilarityUtils}
 import org.llm4s.llmconnect.EmbeddingClient
+<<<<<<< HEAD
 >>>>>>> ad62d21 (Add dynamic chunking and logging to embedding pipeline)
+||||||| parent of 0013d53 (LoggerUtils to SLf4J logger)
+=======
+import org.slf4j.LoggerFactory
+>>>>>>> 0013d53 (LoggerUtils to SLf4J logger)
 
 object EmbeddingExample {
 
+<<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
   private val logger = LoggerFactory.getLogger(getClass)
@@ -54,9 +60,20 @@ object EmbeddingExample {
 ||||||| parent of ad62d21 (Add dynamic chunking and logging to embedding pipeline)
   val provider = EmbeddingConfig.activeProvider.toLowerCase
 =======
+||||||| parent of 0013d53 (LoggerUtils to SLf4J logger)
+=======
+  private val logger = LoggerFactory.getLogger(getClass)
+
+>>>>>>> 0013d53 (LoggerUtils to SLf4J logger)
   def main(args: Array[String]): Unit = {
+<<<<<<< HEAD
     LoggerUtils.info("Starting embedding example...")
 >>>>>>> ad62d21 (Add dynamic chunking and logging to embedding pipeline)
+||||||| parent of 0013d53 (LoggerUtils to SLf4J logger)
+    LoggerUtils.info("Starting embedding example...")
+=======
+    logger.info("Starting embedding example...")
+>>>>>>> 0013d53 (LoggerUtils to SLf4J logger)
 
 <<<<<<< HEAD
 <<<<<<< HEAD
@@ -81,6 +98,7 @@ object EmbeddingExample {
 
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
     val inputPath = EmbeddingConfig.inputPath
     val query     = EmbeddingConfig.query
 ||||||| parent of 29e3c07 (PR3: Extended Voyage model support and improved ModelSelector logic)
@@ -95,6 +113,11 @@ object EmbeddingExample {
   val selectedModel = ModelSelector.selectModel(provider, extractedText)
 =======
     LoggerUtils.info(s"Extracting from: $inputPath")
+||||||| parent of 0013d53 (LoggerUtils to SLf4J logger)
+    LoggerUtils.info(s"Extracting from: $inputPath")
+=======
+    logger.info(s"Extracting from: $inputPath")
+>>>>>>> 0013d53 (LoggerUtils to SLf4J logger)
     val extractedEither = UniversalExtractor.extract(inputPath)
 >>>>>>> ad62d21 (Add dynamic chunking and logging to embedding pipeline)
 
@@ -117,19 +140,20 @@ object EmbeddingExample {
 =======
     extractedEither match {
       case Left(error: ExtractorError) =>
-        LoggerUtils.error(s"[ExtractorError] ${error.message} (type: ${error.`type`}, path: ${error.path})")
+        logger.error(s"[ExtractorError] ${error.message} (type: ${error.`type`}, path: ${error.path})")
         return
 >>>>>>> ad62d21 (Add dynamic chunking and logging to embedding pipeline)
 
       case Right(text) =>
         val inputs: Seq[String] = if (EmbeddingConfig.chunkingEnabled) {
-          LoggerUtils.info(s"Chunking enabled. Using size=${EmbeddingConfig.chunkSize}, overlap=${EmbeddingConfig.chunkOverlap}")
+          logger.info(s"\nChunking enabled. Using size=${EmbeddingConfig.chunkSize}, overlap=${EmbeddingConfig.chunkOverlap}")
           ChunkingUtils.chunkText(text, EmbeddingConfig.chunkSize, EmbeddingConfig.chunkOverlap)
         } else {
-          LoggerUtils.info("Chunking disabled. Proceeding with full text.")
+          logger.info("\nChunking disabled. Proceeding with full text.")
           Seq(text)
         }
 
+<<<<<<< HEAD
 <<<<<<< HEAD
   embeddingProvider.embed(request) match {
     case Right(response) =>
@@ -185,6 +209,10 @@ object EmbeddingExample {
           Seq(text)
         }
 
+||||||| parent of 0013d53 (LoggerUtils to SLf4J logger)
+        LoggerUtils.info(s"Generating embedding for ${inputs.size} input(s)...")
+=======
+>>>>>>> 0013d53 (LoggerUtils to SLf4J logger)
         logger.info(s"\nGenerating embedding for ${inputs.size} input(s)...")
 
         val request = EmbeddingRequest(
@@ -198,6 +226,7 @@ object EmbeddingExample {
         response match {
           case Right(result) =>
             logger.info(s"\nEmbedding response metadata:\n${result.metadata}")
+<<<<<<< HEAD
 
             // Log each embedding vector (first 10 dims only for brevity)
             result.embeddings.zipWithIndex.foreach { case (vec, idx) =>
@@ -236,11 +265,15 @@ object EmbeddingExample {
         response match {
           case Right(result) =>
             LoggerUtils.info(s"Embedding response metadata:\n${result.metadata}")
+||||||| parent of 0013d53 (LoggerUtils to SLf4J logger)
+            LoggerUtils.info(s"Embedding response metadata:\n${result.metadata}")
+=======
+>>>>>>> 0013d53 (LoggerUtils to SLf4J logger)
 
             // Log each embedding vector (first 10 dims only for brevity)
             result.embeddings.zipWithIndex.foreach { case (vec, idx) =>
               val label = if (idx < inputs.size) s"Chunk ${idx + 1}" else "Query"
-              LoggerUtils.info(s"[$label] Embedding: ${vec.take(10).mkString(", ")} ... [${vec.length} dims]")
+              logger.info(s"\n[$label] Embedding: ${vec.take(10).mkString(", ")} ... [${vec.length} dims]")
             }
 
             // Log cosine similarity between first chunk and query
@@ -248,10 +281,10 @@ object EmbeddingExample {
               result.embeddings.head,
               result.embeddings.last
             )
-            LoggerUtils.info(f"Cosine similarity between first doc chunk and query: $similarity%.4f")
+            logger.info(f"\nCosine similarity between first doc chunk and query: $similarity%.4f")
 
           case Left(err) =>
-            LoggerUtils.error(s"[EmbeddingError] ${err.provider}: ${err.message}")
+            logger.error(s"\n[EmbeddingError] ${err.provider}: ${err.message}")
         }
     }
 >>>>>>> ad62d21 (Add dynamic chunking and logging to embedding pipeline)
