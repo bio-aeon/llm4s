@@ -133,12 +133,25 @@ lazy val root = (project in file("."))
       "org.scalamock"     %% "scalamock"       % "7.4.0"  % Test,
       "com.softwaremill.sttp.client4" %% "core"  % "4.0.9",
       "com.lihaoyi"                   %% "ujson" % "4.2.1",
+<<<<<<< HEAD
       "org.apache.pdfbox" % "pdfbox" % "3.0.5",
       "org.apache.tika" % "tika-core" % "3.2.1",
       "org.apache.poi" % "poi-ooxml" % "5.4.1",
       "com.lihaoyi" %% "requests" % "0.9.0",
       "org.jsoup" % "jsoup" % "1.21.1",
       "io.github.cdimascio" % "dotenv-java" % "3.0.0"
+||||||| parent of ad62d21 (Add dynamic chunking and logging to embedding pipeline)
+      "org.apache.pdfbox" % "pdfbox" % "2.0.27",
+      "org.apache.poi" % "poi-ooxml" % "5.2.3",
+      "com.lihaoyi" %% "requests" % "0.8.0",
+      "org.jsoup" % "jsoup" % "1.17.2"
+=======
+      "org.apache.pdfbox" % "pdfbox" % "2.0.27",
+      "org.apache.tika" % "tika-core" % "2.9.0",
+      "org.apache.poi" % "poi-ooxml" % "5.2.3",
+      "com.lihaoyi" %% "requests" % "0.8.0",
+      "org.jsoup" % "jsoup" % "1.17.2"
+>>>>>>> ad62d21 (Add dynamic chunking and logging to embedding pipeline)
     )
 
   )
@@ -206,11 +219,24 @@ lazy val crossLibDependencies = Def.setting {
     "org.scalatest" %% "scalatest" % "3.2.19" % Test,
     "com.softwaremill.sttp.client4" %% "core"  % "4.0.9",
     "com.lihaoyi"                   %% "ujson" % "4.2.1",
+<<<<<<< HEAD
     "org.apache.pdfbox" % "pdfbox" % "3.0.5",
     "org.apache.poi" % "poi-ooxml" % "5.4.1",
     "org.apache.tika" % "tika-core" % "3.2.1",
     "com.lihaoyi" %% "requests" % "0.9.0",
     "org.jsoup" % "jsoup" % "1.21.1"
+||||||| parent of ad62d21 (Add dynamic chunking and logging to embedding pipeline)
+    "org.apache.pdfbox" % "pdfbox" % "2.0.27",
+    "org.apache.poi" % "poi-ooxml" % "5.2.3",
+    "com.lihaoyi" %% "requests" % "0.8.0",
+    "org.jsoup" % "jsoup" % "1.17.2"
+=======
+    "org.apache.pdfbox" % "pdfbox" % "2.0.27",
+    "org.apache.poi" % "poi-ooxml" % "5.2.3",
+    "org.apache.tika" % "tika-core" % "2.9.0",
+    "com.lihaoyi" %% "requests" % "0.8.0",
+    "org.jsoup" % "jsoup" % "1.17.2"
+>>>>>>> ad62d21 (Add dynamic chunking and logging to embedding pipeline)
   )
 }
 

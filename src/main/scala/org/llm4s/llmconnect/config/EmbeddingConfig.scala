@@ -16,6 +16,9 @@ object EmbeddingConfig {
   def loadOptionalEnv(name: String, default: String): String =
     EnvLoader.get(name).getOrElse(default)
 
+  def loadOptionalEnv(name: String, default: String): String =
+    sys.env.getOrElse(name, default)
+
   val openAI: EmbeddingProviderConfig = EmbeddingProviderConfig(
     baseUrl = loadEnv("OPENAI_EMBEDDING_BASE_URL"),
     model = loadEnv("OPENAI_EMBEDDING_MODEL"),
