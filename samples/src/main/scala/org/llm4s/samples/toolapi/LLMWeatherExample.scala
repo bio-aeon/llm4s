@@ -4,6 +4,7 @@ import org.llm4s.llmconnect.{ LLM, LLMClient }
 import org.llm4s.llmconnect.model._
 import org.llm4s.toolapi._
 import org.llm4s.toolapi.tools.WeatherTool
+import org.llm4s.error.UnknownError
 
 import scala.annotation.tailrec
 
@@ -77,6 +78,9 @@ object LLMWeatherExample {
           }
         }
 
+      case Left(UnknownError(message, throwable)) =>
+        println(s"Error: $message")
+        throwable.printStackTrace()
       case Left(error) =>
         println(s"Error: ${error.formatted}")
     }

@@ -8,8 +8,8 @@ val scala3   = "3.7.1"
 val scala3CompilerOptions = Seq(
   "-explain",
   "-explain-types",
-  "-Wconf:cat=unused:s",   // suppress unused warnings
-  "-Wconf:cat=deprecation:s", // suppress deprecation warnings
+  "-Wconf:msg=unused:s",   // suppress unused warnings
+  "-Wconf:msg=deprecation:s", // suppress deprecation warnings
   "-Wunused:nowarn",
   "-source:3.3",
   "-Wsafe-init",

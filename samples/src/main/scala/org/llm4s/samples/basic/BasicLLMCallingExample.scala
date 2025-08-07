@@ -2,26 +2,27 @@ package org.llm4s.samples.basic
 
 import org.llm4s.llmconnect.LLM
 import org.llm4s.llmconnect.model._
+import org.llm4s.error.UnknownError
 
 /**
  * Basic example demonstrating simple LLM API calls using LLM4S.
  * Shows how to create a conversation and get a completion response.
- * 
+ *
  * To run this example:
  * ```bash
  * # Set up environment variables (choose one provider)
  * export LLM_MODEL=openai/gpt-4o           # For OpenAI
  * export OPENAI_API_KEY=sk-...             # Your OpenAI API key
- * 
+ *
  * # OR for Anthropic:
  * export LLM_MODEL=anthropic/claude-3-5-sonnet-latest
  * export ANTHROPIC_API_KEY=sk-ant-...      # Your Anthropic API key
- * 
+ *
  * # OR for Azure OpenAI:
  * export LLM_MODEL=azure/<deployment-name>
  * export AZURE_OPENAI_API_KEY=...
  * export AZURE_OPENAI_ENDPOINT=https://<resource>.openai.azure.com/
- * 
+ *
  * # Run the example
  * sbt "samples/runMain org.llm4s.samples.basic.BasicLLMCallingExample"
  * ```
@@ -58,7 +59,13 @@ object BasicLLMCallingExample {
         }
 
       case Left(error) =>
-        println(s"Error: ${error.message}")
+        error match {
+          case UnknownError(message, throwable) =>
+            println(s"Error: $message")
+            throwable.printStackTrace()
+          case _ =>
+            println(s"Error: ${error.message}")
+        }
     }
   }
 }

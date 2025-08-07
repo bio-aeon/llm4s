@@ -7,6 +7,7 @@ import org.llm4s.llmconnect.provider.LLMProvider
 import org.llm4s.shared._
 import org.llm4s.toolapi._
 import org.llm4s.workspace.ContainerisedWorkspace
+import org.llm4s.error.UnknownError
 import org.slf4j.LoggerFactory
 
 import scala.annotation.tailrec
@@ -165,6 +166,8 @@ object WorkspaceToolExample {
           }
         }
 
+      case Left(UnknownError(message, throwable)) =>
+        logger.error("Unknown error occurred: {}", message, throwable)
       case Left(error) =>
         logger.error("Error occurred: {}", error.formatted)
     }

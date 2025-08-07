@@ -19,7 +19,7 @@ import scala.util.Try
  * {{{
  * val config = HuggingFaceConfig(
  *   apiKey = "your-hf-token",
- *   model = "stabilityai/stable-diffusion-2-1"
+ *   model = "runwayml/stable-diffusion-v1-5"
  * )
  * val client = new HuggingFaceClient(config)
  *

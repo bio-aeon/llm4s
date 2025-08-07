@@ -1,53 +1,121 @@
 package org.llm4s.szork
 
 import org.slf4j.LoggerFactory
-import requests._
 import org.llm4s.config.EnvLoader
-import ujson._
+import org.llm4s.imagegeneration
+import org.llm4s.imagegeneration._
 
 class ImageGeneration {
   private val logger = LoggerFactory.getLogger("ImageGen")
-  private val apiKey = EnvLoader.get("OPENAI_API_KEY").getOrElse(
-    throw new IllegalStateException("OPENAI_API_KEY not found in environment")
-  )
+  private val config = SzorkConfig.instance
   
-  def generateScene(prompt: String, style: String = "fantasy art, digital painting"): Either[String, String] = {
-    logger.info(s"Generating image for prompt: ${prompt.take(100)}...")
-    
-    val fullPrompt = s"$prompt, $style, highly detailed, atmospheric lighting"
-    
-    try {
-      val response = post(
-        "https://api.openai.com/v1/images/generations",
-        headers = Map(
-          "Authorization" -> s"Bearer $apiKey",
-          "Content-Type" -> "application/json"
-        ),
-        data = Obj(
-          "model" -> "dall-e-2",
-          "prompt" -> fullPrompt,
-          "n" -> 1,
-          "size" -> "256x256",
-          "response_format" -> "b64_json"
-        ).toString,
-        readTimeout = 30000,  // 30 seconds for DALL-E to generate image
-        connectTimeout = 10000  // 10 seconds to establish connection
-      )
-      
-      if (response.statusCode == 200) {
-        val json = read(response.text())
-        val base64Image = json("data")(0)("b64_json").str
-        logger.info(s"Image generation successful, base64 length: ${base64Image.length}")
-        Right(base64Image)
-      } else {
-        val error = s"Image generation failed with status ${response.statusCode}: ${response.text()}"
-        logger.error(error)
-        Left(error)
+  // Configure image generation provider based on configuration
+  private val (imageClientOpt, providerName) = {
+    if (!config.imageGenerationEnabled) {
+      logger.info("Image generation is disabled")
+      (None, "Disabled")
+    } else {
+      config.imageProvider match {
+        case ImageProvider.None =>
+          logger.info("Image generation provider set to None")
+          (None, "None")
+          
+        case ImageProvider.HuggingFace | ImageProvider.HuggingFaceSDXL =>
+          val hfKey = EnvLoader.get("HUGGINGFACE_API_KEY")
+            .orElse(EnvLoader.get("HF_API_KEY"))
+            .orElse(EnvLoader.get("HUGGINGFACE_TOKEN"))
+            .getOrElse(
+              throw new IllegalStateException(
+                s"Image provider set to ${ImageProvider.toString(config.imageProvider)} but no HuggingFace API key found. " +
+                "Please set HUGGINGFACE_API_KEY, HF_API_KEY, or HUGGINGFACE_TOKEN"
+              )
+            )
+          val model = config.imageProvider match {
+            case ImageProvider.HuggingFaceSDXL => "stabilityai/stable-diffusion-xl-base-1.0"
+            case _ => "runwayml/stable-diffusion-v1-5"
+          }
+          logger.info(s"Using HuggingFace for image generation with model: $model")
+          (Some(imagegeneration.ImageGeneration.huggingFaceClient(hfKey, model)), s"HuggingFace ($model)")
+          
+        case ImageProvider.OpenAIDalle3 =>
+          val openAIKey = EnvLoader.get("OPENAI_API_KEY").getOrElse(
+            throw new IllegalStateException("Image provider set to OpenAI DALL-E 3 but OPENAI_API_KEY not found")
+          )
+          logger.info("Using OpenAI DALL-E 3 for image generation")
+          (Some(imagegeneration.ImageGeneration.openAIClient(openAIKey, "dall-e-3")), "OpenAI DALL-E 3")
+          
+        case ImageProvider.OpenAIDalle2 =>
+          val openAIKey = EnvLoader.get("OPENAI_API_KEY").getOrElse(
+            throw new IllegalStateException("Image provider set to OpenAI DALL-E 2 but OPENAI_API_KEY not found")
+          )
+          logger.info("Using OpenAI DALL-E 2 for image generation")
+          (Some(imagegeneration.ImageGeneration.openAIClient(openAIKey, "dall-e-2")), "OpenAI DALL-E 2")
       }
-    } catch {
-      case e: Exception =>
-        logger.error("Error during image generation", e)
-        Left(s"Image generation error: ${e.getMessage}")
+    }
+  }
+  
+  def generateScene(prompt: String, style: String = ""): Either[String, String] = {
+    generateSceneWithCache(prompt, style, None, None)
+  }
+  
+  def generateSceneWithCache(prompt: String, style: String = "", gameId: Option[String] = None, locationId: Option[String] = None): Either[String, String] = {
+    // Check if image generation is enabled
+    imageClientOpt match {
+      case None =>
+        logger.debug(s"Image generation disabled, returning empty image")
+        return Right("") // Return empty string when disabled
+      case Some(imageClient) =>
+        // Check cache first if gameId and locationId are provided
+        (gameId, locationId) match {
+          case (Some(gId), Some(lId)) =>
+            MediaCache.getCachedImage(gId, lId, prompt, style) match {
+              case Some(cachedImage) =>
+                logger.info(s"Using cached image for game=$gId, location=$lId")
+                return Right(cachedImage)
+              case None =>
+                logger.info(s"No cached image found for game=$gId, location=$lId - generating new image")
+            }
+          case _ =>
+            logger.info(s"No cache info provided - generating image directly")
+        }
+        
+        logger.info(s"Generating image using $providerName for prompt: ${prompt.take(100)}...")
+        
+        // Use prompt as-is if no additional style specified
+        val fullPrompt = if (style.isEmpty) {
+          prompt
+        } else {
+          s"$prompt, $style"
+        }
+        
+        // Configure options for image generation
+        val options = ImageGenerationOptions(
+          size = ImageSize.Square512,  // 512x512 works for both HuggingFace and DALL-E
+          format = ImageFormat.PNG
+        )
+        
+        // Use LLM4S image generation
+        imageClient.generateImage(fullPrompt, options) match {
+          case Right(generatedImage) =>
+            val base64Image = generatedImage.data
+            logger.info(s"Image generation successful, base64 length: ${base64Image.length}")
+            
+            // Cache the generated image if gameId and locationId are provided
+            (gameId, locationId) match {
+              case (Some(gId), Some(lId)) =>
+                MediaCache.cacheImage(gId, lId, prompt, style, base64Image)
+                logger.info(s"Cached generated image for game=$gId, location=$lId")
+              case _ =>
+                logger.debug("No cache info provided - skipping image caching")
+            }
+            
+            Right(base64Image)
+            
+          case Left(error) =>
+            val errorMessage = s"Image generation error: ${error.message}"
+            logger.error(errorMessage)
+            Left(errorMessage)
+        }
     }
   }
   

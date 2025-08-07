@@ -13,4 +13,11 @@ CLAUDE.md
 .metals
 .vscode
 **/.claude/settings.local.json
-.DS_Store
+# Szork cache and save files
+szork/szork-cache/
+szork/szork-saves/*.json
+
+# Generated image files from samples
+*.png
+*.jpg
+*.jpeg

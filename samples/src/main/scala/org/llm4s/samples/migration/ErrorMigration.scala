@@ -30,19 +30,19 @@ object ErrorMigration {
 
         // Enhanced error handling with recovery logic
         error match {
-          case e: RateLimitError =>
-            println(s"Rate limited by ${e.provider}, retrying in ${e.retryAfter.getOrElse(60)} seconds")
+          case RateLimitError(_, retryAfter, provider) =>
+            println(s"Rate limited by $provider, retrying in ${retryAfter.getOrElse(60)} seconds")
           // Implement retry logic
 
-          case e: AuthenticationError =>
-            println(s"Authentication failed for ${e.provider} - check API key")
+          case AuthenticationError(_, provider, _) =>
+            println(s"Authentication failed for $provider - check API key")
 
-          case e: ServiceError =>
-            println(s"Service error from ${e.provider} (status: ${e.httpStatus})")
-            e.requestId.foreach(id => println(s"Request ID: $id"))
+          case ServiceError(_, statusCode, provider, requestId) =>
+            println(s"Service error from $provider (status: $statusCode)")
+            requestId.foreach(id => println(s"Request ID: $id"))
 
-          case e: NetworkError =>
-            println(s"Network error connecting to ${e.endpoint}")
+          case NetworkError(_, _, endpoint) =>
+            println(s"Network error connecting to $endpoint")
             if (error.isRecoverable) {
               println("Will retry with exponential backoff")
             }

@@ -1,20 +1,41 @@
 <template>
   <v-container fluid class="game-container pa-0">
     <!-- Intro Screen -->
-    <div v-if="!gameStarted" class="intro-screen">
-      <div class="intro-content">
+    <div v-if="!gameStarted && !setupStarted && !selectionStarted" class="intro-screen">
+      <div class="intro-content" v-if="!loading">
         <img src="/SZork_intro.webp" alt="Welcome to Szork" class="intro-image" />
         <v-btn 
-          color="primary" 
           size="x-large" 
-          class="begin-button"
-          @click="beginAdventure"
-          elevation="8"
+          class="begin-button begin-adventure-btn"
+          @click="beginSelection"
         >
           Begin Your Adventure
+          <v-icon end>mdi-chevron-right</v-icon>
         </v-btn>
       </div>
+      <div class="intro-content" v-else>
+        <v-progress-circular
+          indeterminate
+          color="primary"
+          size="64"
+          width="4"
+        />
+        <div class="text-h6 mt-4">Loading saved game...</div>
+      </div>
     </div>
+    
+    <!-- Game Selection Screen -->
+    <GameSelection
+      v-else-if="selectionStarted && !setupStarted && !gameStarted"
+      @start-new-game="startNewGame"
+      @load-game="loadSelectedGame"
+    />
+    
+    <!-- Adventure Setup Screen -->
+    <AdventureSetup 
+      v-else-if="setupStarted && !gameStarted"
+      @adventure-ready="onAdventureReady"
+    />
     
     <!-- Game Screen -->
     <v-row v-else class="game-row ma-0">
@@ -23,10 +44,32 @@
           <v-card-title class="text-h5 game-title">
             <v-row align="center" justify="space-between">
               <v-col cols="auto">
-                SZork - Generative Adventuring
+                SZork - {{ adventureTitle }}
               </v-col>
               <v-col cols="auto">
                 <div class="audio-controls">
+                  <v-btn
+                    @click="backToSelection"
+                    color="warning"
+                    variant="outlined"
+                    icon
+                    size="small"
+                    title="Back to Adventure Selection"
+                    class="mr-2"
+                  >
+                    <v-icon>mdi-arrow-left</v-icon>
+                  </v-btn>
+                  <v-btn
+                    @click="imageGenerationEnabled = !imageGenerationEnabled"
+                    :color="imageGenerationEnabled ? 'info' : 'grey'"
+                    :variant="imageGenerationEnabled ? 'flat' : 'outlined'"
+                    icon
+                    size="small"
+                    :title="imageGenerationEnabled ? 'Image Generation Enabled' : 'Image Generation Disabled'"
+                    class="mr-2"
+                  >
+                    <v-icon>{{ imageGenerationEnabled ? 'mdi-image' : 'mdi-image-off' }}</v-icon>
+                  </v-btn>
                   <v-btn
                     @click="backgroundMusicEnabled = !backgroundMusicEnabled"
                     :color="backgroundMusicEnabled ? 'primary' : 'grey'"
@@ -77,7 +120,15 @@
                     ></v-progress-circular>
                   </div>
                 </div>
-                <div class="message-text">{{ message.text }}</div>
+                <div class="message-text">
+                  {{ message.text }}
+                  <div v-if="message.scene && message.scene.exits && message.scene.exits.length > 0" class="exits-info">
+                    <strong>Exits:</strong> 
+                    <span v-for="(exit, index) in message.scene.exits" :key="index">
+                      {{ exit.direction }}<span v-if="exit.description"> ({{ exit.description }})</span><span v-if="index < message.scene.exits.length - 1">, </span>
+                    </span>
+                  </div>
+                </div>
               </div>
               <div v-if="loading" class="loading-indicator">
                 <v-progress-circular
@@ -135,8 +186,23 @@
 </template>
 
 <script lang="ts">
-import { defineComponent, ref, nextTick, onMounted, watch } from "vue";
+import { defineComponent, ref, nextTick, onMounted, onUnmounted, watch } from "vue";
+import { useRouter, useRoute } from "vue-router";
 import axios from "axios";
+import AdventureSetup from "@/components/AdventureSetup.vue";
+import GameSelection from "@/components/GameSelection.vue";
+
+interface Exit {
+  direction: string;
+  description?: string;
+}
+
+interface Scene {
+  locationName: string;
+  exits: Exit[];
+  items?: string[];
+  npcs?: string[];
+}
 
 interface GameMessage {
   text: string;
@@ -145,15 +211,29 @@ interface GameMessage {
   messageIndex?: number;
   hasImage?: boolean;
   imageLoading?: boolean;
+  scene?: Scene;
 }
 
 export default defineComponent({
   name: "GameView",
-  setup() {
+  components: {
+    AdventureSetup,
+    GameSelection
+  },
+  props: {
+    gameId: {
+      type: String,
+      default: null
+    }
+  },
+  setup(props) {
+    const router = useRouter();
+    const route = useRoute();
     const messages = ref<GameMessage[]>([]);
     const userInput = ref("");
     const gameOutput = ref<HTMLElement>();
     const sessionId = ref<string | null>(null);
+    const currentGameId = ref<string | null>(props.gameId || route.params.gameId as string || null);
     const loading = ref(false);
     const recording = ref(false);
     const mediaRecorder = ref<MediaRecorder | null>(null);
@@ -161,12 +241,18 @@ export default defineComponent({
     const narrationEnabled = ref(true);
     const narrationVolume = ref(0.8);
     const gameStarted = ref(false);
+    const setupStarted = ref(false);
+    const selectionStarted = ref(false);
+    const adventureTheme = ref<any>(null);
+    const artStyle = ref<any>(null);
+    const adventureOutline = ref<any>(null);
+    const adventureTitle = ref<string>("Generative Adventuring");
     const backgroundMusicEnabled = ref(true);
     const backgroundMusicVolume = ref(0.3);
     const currentBackgroundMusic = ref<HTMLAudioElement | null>(null);
-    const nextBackgroundMusic = ref<HTMLAudioElement | null>(null);
     const currentMusicMood = ref<string | null>(null);
     const currentNarration = ref<HTMLAudioElement | null>(null);
+    const imageGenerationEnabled = ref(true);
     
     // Helper function for logging with timestamps
     const log = (message: string, ...args: any[]) => {
@@ -181,30 +267,235 @@ export default defineComponent({
       }
     };
 
-    const beginAdventure = () => {
+    const beginSelection = () => {
+      selectionStarted.value = true;
+    };
+    
+    const startNewGame = () => {
+      selectionStarted.value = false;
+      setupStarted.value = true;
+    };
+    
+    const loadSelectedGame = (gameId: string) => {
+      selectionStarted.value = false;
+      loadGame(gameId);
+    };
+    
+    const backToSelection = () => {
+      // Clean up any existing audio
+      if (currentBackgroundMusic.value) {
+        currentBackgroundMusic.value.pause();
+        currentBackgroundMusic.value.src = "";
+        currentBackgroundMusic.value = null;
+        currentMusicMood.value = null;
+      }
+      if (currentNarration.value) {
+        currentNarration.value.pause();
+        currentNarration.value.src = "";
+        currentNarration.value = null;
+      }
+      
+      // Reset game state
+      gameStarted.value = false;
+      setupStarted.value = false;
+      selectionStarted.value = true;
+      sessionId.value = null;
+      currentGameId.value = null;
+      messages.value = [];
+      adventureTitle.value = "Generative Adventuring";
+      
+      // Clear the game ID from the URL if present
+      if (route.params.gameId) {
+        router.push('/');
+      }
+    };
+
+    const beginSetup = () => {
+      setupStarted.value = true;
+    };
+    
+    const onAdventureReady = (config: { theme: any, style: any, outline?: any }) => {
+      adventureTheme.value = config.theme;
+      artStyle.value = config.style;
+      adventureOutline.value = config.outline || null;
+      // Set the adventure title if available
+      if (config.outline && config.outline.title) {
+        adventureTitle.value = config.outline.title;
+      }
       gameStarted.value = true;
+      setupStarted.value = false;
       nextTick(() => {
         startGame();
       });
     };
 
+    const loadGame = async (gameId: string) => {
+      try {
+        loading.value = true;
+        log(`Loading game: ${gameId}`);
+        
+        // Clean up any existing audio when loading a new game
+        if (currentBackgroundMusic.value) {
+          currentBackgroundMusic.value.pause();
+          currentBackgroundMusic.value.src = "";
+          currentBackgroundMusic.value = null;
+          currentMusicMood.value = null;
+        }
+        
+        const response = await axios.get(`/api/game/load/${gameId}`);
+        
+        if (response.data.status === "success") {
+          sessionId.value = response.data.sessionId;
+          currentGameId.value = response.data.gameId;
+          
+          // Restore adventure title if available
+          if (response.data.adventureTitle) {
+            adventureTitle.value = response.data.adventureTitle;
+          } else if (response.data.outline && response.data.outline.title) {
+            adventureTitle.value = response.data.outline.title;
+          }
+          
+          // Clear existing messages
+          messages.value = [];
+          
+          // Restore conversation history
+          if (response.data.conversationHistory && response.data.conversationHistory.length > 0) {
+            response.data.conversationHistory.forEach((entry: any, index: number) => {
+              const isLastAssistantMessage = 
+                entry.role === "assistant" && 
+                index === response.data.conversationHistory.length - 1;
+              
+              const message: GameMessage = {
+                text: entry.content,
+                type: entry.role === "user" ? "user" : "game",
+                messageIndex: messages.value.length,
+                // Add scene info to the last assistant message
+                scene: isLastAssistantMessage && response.data.scene ? response.data.scene : undefined,
+                hasImage: false,
+                imageLoading: false,
+                // Add cached image if available for last message
+                image: isLastAssistantMessage && response.data.scene?.cachedImage ? 
+                  response.data.scene.cachedImage : undefined
+              };
+              
+              // If we have a cached image, mark it as having an image
+              if (message.image) {
+                message.hasImage = true;
+                message.imageLoading = false;
+                log(`Loaded cached image for location: ${response.data.scene?.locationId}`);
+              }
+              
+              messages.value.push(message);
+            });
+            log(`Restored ${response.data.conversationHistory.length} conversation entries`);
+          }
+          
+          // Show current scene info
+          if (response.data.scene) {
+            const scene = response.data.scene;
+            log(`Loaded game at scene: ${scene.locationName} with ${scene.exits?.length || 0} exits`);
+          }
+          
+          gameStarted.value = true;
+          loading.value = false;
+          
+          // Scroll to bottom after loading
+          await nextTick();
+          await scrollToBottom();
+          
+          // Update URL if not already there
+          if (!route.params.gameId || route.params.gameId !== gameId) {
+            router.push(`/game/${gameId}`);
+          }
+        } else {
+          log(`Failed to load game: ${response.data.error}`);
+          // Show error message and redirect to home
+          alert(`Unable to load saved game: ${response.data.error}\n\nYou will be redirected to the main screen.`);
+          loading.value = false;
+          // Reset to initial state
+          gameStarted.value = false;
+          setupStarted.value = false;
+          selectionStarted.value = false;
+          // Clear the game ID from the URL
+          router.push('/');
+        }
+      } catch (error) {
+        log("Error loading game:", error);
+        // Show error message and redirect to home
+        alert(`Unable to load saved game.\n\nThe game may have been deleted or corrupted.\n\nYou will be redirected to the main screen.`);
+        loading.value = false;
+        // Reset to initial state
+        gameStarted.value = false;
+        setupStarted.value = false;
+        selectionStarted.value = false;
+        // Clear the game ID from the URL
+        router.push('/');
+      }
+    };
+    
     const startGame = async () => {
       try {
         loading.value = true;
-        log("Starting game...");
-        const response = await axios.post("/api/game/start");
+        log("Starting game with theme:", adventureTheme.value, "and style:", artStyle.value, "and outline:", adventureOutline.value);
+        
+        // Clean up any existing audio when starting a new game
+        if (currentBackgroundMusic.value) {
+          currentBackgroundMusic.value.pause();
+          currentBackgroundMusic.value.src = "";
+          currentBackgroundMusic.value = null;
+          currentMusicMood.value = null;
+        }
+        
+        const response = await axios.post("/api/game/start", {
+          theme: adventureTheme.value,
+          artStyle: artStyle.value,
+          outline: adventureOutline.value,
+          imageGenerationEnabled: imageGenerationEnabled.value
+        });
         log("Game start response:", response.data);
+        
+        // Check if the response indicates an error
+        if (response.data.status === "error") {
+          loading.value = false;
+          const errorMessage = response.data.message || "Failed to start game. Please try again.";
+          alert(errorMessage);
+          // Go back to setup screen
+          gameStarted.value = false;
+          setupStarted.value = true;
+          return;
+        }
+        
         sessionId.value = response.data.sessionId;
+        currentGameId.value = response.data.gameId;
+        
+        // Set the adventure title from the response if available
+        if (response.data.adventureTitle) {
+          adventureTitle.value = response.data.adventureTitle;
+        } else if (response.data.outline && response.data.outline.title) {
+          adventureTitle.value = response.data.outline.title;
+        } else if (adventureOutline.value && adventureOutline.value.title) {
+          adventureTitle.value = adventureOutline.value.title;
+        }
+        
+        // Update URL to include game ID
+        router.push(`/game/${response.data.gameId}`);
         const initialMessage: GameMessage = {
           text: response.data.message,
           type: "game",
           messageIndex: response.data.messageIndex,
           hasImage: response.data.hasImage || false,
-          imageLoading: response.data.hasImage || false
+          imageLoading: response.data.hasImage || false,
+          scene: response.data.scene
         };
         
         messages.value.push(initialMessage);
         const messageIdx = messages.value.length - 1;
+        
+        // Add auto-save notification
+        messages.value.push({
+          text: "✓ Auto-save enabled - Your progress is saved automatically",
+          type: "system"
+        });
         
         // If image is being generated for initial scene, poll for it
         if (response.data.hasImage) {
@@ -255,6 +546,7 @@ export default defineComponent({
         const response = await axios.post("/api/game/command", {
           sessionId: sessionId.value,
           command: command,
+          imageGenerationEnabled: imageGenerationEnabled.value
         });
 
         if (response.data.status === "success") {
@@ -264,7 +556,8 @@ export default defineComponent({
             type: "game",
             messageIndex: response.data.messageIndex,
             hasImage: response.data.hasImage || false,
-            imageLoading: response.data.hasImage || false
+            imageLoading: response.data.hasImage || false,
+            scene: response.data.scene
           };
           
           messages.value.push(newMessage);
@@ -379,9 +672,19 @@ export default defineComponent({
     const sendAudioCommand = async (audioBlob: Blob) => {
       if (!sessionId.value) return;
 
+      // Check if audio clip has content
+      log("Audio blob size:", audioBlob.size, "bytes");
+      if (audioBlob.size === 0) {
+        messages.value.push({
+          text: "Please hold the record button to record audio",
+          type: "system",
+        });
+        return;
+      }
+
       // Show user feedback
       messages.value.push({
-        text: "> [Audio input]",
+        text: "> [Audio input - processing...]",
         type: "user",
       });
 
@@ -403,6 +706,7 @@ export default defineComponent({
         const response = await axios.post("/api/game/audio", {
           sessionId: sessionId.value,
           audio: base64Audio,
+          imageGenerationEnabled: imageGenerationEnabled.value
         });
 
         if (response.data.status === "success") {
@@ -413,6 +717,9 @@ export default defineComponent({
             const lastUserMsg = messages.value[messages.value.length - 1];
             if (lastUserMsg.type === "user") {
               lastUserMsg.text = `> ${response.data.transcription}`;
+              // Log the transcription for debugging
+              log(`[${sessionId.value || 'no-session'}] Transcription result: "${response.data.transcription}"`);
+              console.log(`🎤 Voice transcription: "${response.data.transcription}"`);
             }
           }
           
@@ -421,7 +728,8 @@ export default defineComponent({
             type: "game",
             messageIndex: response.data.messageIndex,
             hasImage: response.data.hasImage || false,
-            imageLoading: response.data.hasImage || false
+            imageLoading: response.data.hasImage || false,
+            scene: response.data.scene
           };
           
           messages.value.push(newMessage);
@@ -597,67 +905,45 @@ export default defineComponent({
       log(`Playing background music, mood: ${mood}, enabled: ${backgroundMusicEnabled.value}`);
       
       if (!backgroundMusicEnabled.value) {
-        log("Background music is disabled, skipping playback");
+        log("Background music is disabled, skipping");
         return;
       }
       
       try {
-        // Create new audio element for the new music
-        const audioUrl = `data:audio/mp3;base64,${musicBase64}`;
-        const newMusic = new Audio(audioUrl);
-        newMusic.volume = 0; // Start at 0 for fade-in
-        newMusic.loop = true; // Loop background music
-        
-        // If there's current music playing, crossfade
-        if (currentBackgroundMusic.value && !currentBackgroundMusic.value.paused) {
-          log("Crossfading from current music to new music");
-          
-          // Fade out current music
-          const fadeOutInterval = setInterval(() => {
-            if (currentBackgroundMusic.value && currentBackgroundMusic.value.volume > 0.01) {
-              currentBackgroundMusic.value.volume = Math.max(0, currentBackgroundMusic.value.volume - 0.02);
-            } else {
-              clearInterval(fadeOutInterval);
-              if (currentBackgroundMusic.value) {
-                currentBackgroundMusic.value.pause();
-                currentBackgroundMusic.value = null;
-              }
-            }
-          }, 50);
-          
-          // Start playing new music and fade in
-          newMusic.play().then(() => {
-            const fadeInInterval = setInterval(() => {
-              if (newMusic.volume < backgroundMusicVolume.value) {
-                newMusic.volume = Math.min(backgroundMusicVolume.value, newMusic.volume + 0.02);
-              } else {
-                clearInterval(fadeInInterval);
-              }
-            }, 50);
-          }).catch(error => {
-            log("Error playing background music:", error);
-          });
-        } else {
-          // No current music, just fade in the new music
-          newMusic.play().then(() => {
-            log("Starting new background music");
-            const fadeInInterval = setInterval(() => {
-              if (newMusic.volume < backgroundMusicVolume.value) {
-                newMusic.volume = Math.min(backgroundMusicVolume.value, newMusic.volume + 0.02);
-              } else {
-                clearInterval(fadeInInterval);
-              }
-            }, 50);
-          }).catch(error => {
-            log("Error playing background music:", error);
-          });
+        // Clean up any existing music first
+        if (currentBackgroundMusic.value) {
+          log("Stopping current background music");
+          currentBackgroundMusic.value.pause();
+          currentBackgroundMusic.value.src = "";
+          currentBackgroundMusic.value = null;
         }
         
+        // Create new audio element
+        const audioUrl = `data:audio/mp3;base64,${musicBase64}`;
+        const newMusic = new Audio(audioUrl);
+        newMusic.volume = backgroundMusicVolume.value;
+        newMusic.loop = true; // Loop background music
+        
+        // Store reference and mood
         currentBackgroundMusic.value = newMusic;
         currentMusicMood.value = mood;
         
+        // Play the music
+        newMusic.play()
+          .then(() => {
+            log("Background music started successfully");
+          })
+          .catch(error => {
+            log("Error playing background music:", error);
+            // Clean up on error
+            currentBackgroundMusic.value = null;
+            currentMusicMood.value = null;
+          });
+        
       } catch (error) {
         log("Error creating background music element:", error);
+        currentBackgroundMusic.value = null;
+        currentMusicMood.value = null;
       }
     };
 
@@ -677,30 +963,26 @@ export default defineComponent({
 
     // Watch for background music enabled changes
     watch(backgroundMusicEnabled, (enabled) => {
-      if (!enabled && currentBackgroundMusic.value) {
-        // Fade out and stop music
-        const fadeOutInterval = setInterval(() => {
-          if (currentBackgroundMusic.value && currentBackgroundMusic.value.volume > 0.01) {
-            currentBackgroundMusic.value.volume = Math.max(0, currentBackgroundMusic.value.volume - 0.02);
-          } else {
-            clearInterval(fadeOutInterval);
-            if (currentBackgroundMusic.value) {
-              currentBackgroundMusic.value.pause();
-              currentBackgroundMusic.value.currentTime = 0; // Reset to beginning
-            }
-          }
-        }, 50);
-      } else if (enabled && currentBackgroundMusic.value && currentBackgroundMusic.value.paused) {
-        // Resume music with fade in
-        currentBackgroundMusic.value.volume = 0; // Start at 0 for fade in
-        currentBackgroundMusic.value.play();
-        const fadeInInterval = setInterval(() => {
-          if (currentBackgroundMusic.value && currentBackgroundMusic.value.volume < backgroundMusicVolume.value) {
-            currentBackgroundMusic.value.volume = Math.min(backgroundMusicVolume.value, currentBackgroundMusic.value.volume + 0.02);
-          } else {
-            clearInterval(fadeInInterval);
-          }
-        }, 50);
+      if (!enabled) {
+        log("Disabling background music");
+        // Simply pause the music
+        if (currentBackgroundMusic.value && !currentBackgroundMusic.value.paused) {
+          currentBackgroundMusic.value.pause();
+          log("Background music paused");
+        }
+      } else if (enabled) {
+        log("Background music re-enabled");
+        // Resume current music if it exists
+        if (currentBackgroundMusic.value && currentBackgroundMusic.value.paused) {
+          log("Resuming paused background music");
+          currentBackgroundMusic.value.play()
+            .then(() => {
+              log("Background music resumed");
+            })
+            .catch(error => {
+              log("Error resuming background music:", error);
+            });
+        }
       }
     });
 
@@ -715,8 +997,36 @@ export default defineComponent({
       }
     });
 
+    // Game saving is now automatic after each command
+    // No manual save function needed
+
     onMounted(() => {
-      // Game now starts when user clicks "Begin Your Adventure"
+      // Check if there's a game ID in the URL
+      const gameIdFromRoute = route.params.gameId as string;
+      if (gameIdFromRoute) {
+        log(`Found game ID in URL: ${gameIdFromRoute}`);
+        loadGame(gameIdFromRoute);
+      } else {
+        // No game ID, don't automatically start anything
+        // The user will click "Begin Your Adventure" to go to selection screen
+        log("No game ID in URL, waiting for user to begin");
+      }
+    });
+
+    onUnmounted(() => {
+      log("Component unmounting, cleaning up audio");
+      // Clean up background music
+      if (currentBackgroundMusic.value) {
+        currentBackgroundMusic.value.pause();
+        currentBackgroundMusic.value.src = "";
+        currentBackgroundMusic.value = null;
+      }
+      // Clean up narration
+      if (currentNarration.value) {
+        currentNarration.value.pause();
+        currentNarration.value.src = "";
+        currentNarration.value = null;
+      }
     });
 
     return {
@@ -732,11 +1042,22 @@ export default defineComponent({
       narrationVolume,
       pollForImage,
       gameStarted,
-      beginAdventure,
+      setupStarted,
+      selectionStarted,
+      beginSelection,
+      startNewGame,
+      loadSelectedGame,
+      backToSelection,
+      beginSetup,
+      onAdventureReady,
       backgroundMusicEnabled,
       backgroundMusicVolume,
       currentMusicMood,
       pollForMusic,
+      loadGame,
+      currentGameId,
+      adventureTitle,
+      imageGenerationEnabled,
     };
   },
 });
@@ -772,10 +1093,68 @@ export default defineComponent({
 
 .begin-button {
   font-size: 1.2rem;
-  padding: 1.5rem 3rem;
-  text-transform: uppercase;
-  letter-spacing: 2px;
-  animation: pulse 2s ease-in-out infinite;
+  animation: pulse-shadow 2s ease-in-out infinite;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  line-height: 1 !important;
+}
+
+.begin-adventure-btn {
+  background-color: #000000 !important;
+  color: #ffffff !important;
+  border: 2px solid #ffffff !important;
+  border-radius: 8px !important;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0.5px;
+  padding: 0 32px !important;
+  min-height: 56px !important;
+  height: 56px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  line-height: 1 !important;
+  box-shadow: 
+    inset 2px 2px 4px rgba(255, 255, 255, 0.2),
+    inset -2px -2px 4px rgba(0, 0, 0, 0.5),
+    0 4px 8px rgba(0, 0, 0, 0.3);
+  transition: all 0.3s ease;
+}
+
+.begin-adventure-btn:hover {
+  background-color: #1a1a1a !important;
+  border-color: #ffffff !important;
+  box-shadow: 
+    inset 2px 2px 6px rgba(255, 255, 255, 0.3),
+    inset -2px -2px 6px rgba(0, 0, 0, 0.6),
+    0 6px 12px rgba(0, 0, 0, 0.4);
+  transform: translateY(-2px);
+}
+
+.begin-adventure-btn:active {
+  box-shadow: 
+    inset 2px 2px 4px rgba(0, 0, 0, 0.6),
+    inset -2px -2px 4px rgba(255, 255, 255, 0.1),
+    0 2px 4px rgba(0, 0, 0, 0.2);
+  transform: translateY(0);
+}
+
+@keyframes pulse-shadow {
+  0%, 100% {
+    box-shadow: 
+      inset 2px 2px 4px rgba(255, 255, 255, 0.2),
+      inset -2px -2px 4px rgba(0, 0, 0, 0.5),
+      0 4px 8px rgba(0, 0, 0, 0.3),
+      0 0 20px rgba(255, 255, 255, 0.2);
+  }
+  50% {
+    box-shadow: 
+      inset 2px 2px 4px rgba(255, 255, 255, 0.2),
+      inset -2px -2px 4px rgba(0, 0, 0, 0.5),
+      0 4px 8px rgba(0, 0, 0, 0.3),
+      0 0 40px rgba(255, 255, 255, 0.4);
+  }
 }
 
 @keyframes fadeIn {
@@ -859,6 +1238,14 @@ export default defineComponent({
 .game-message.system {
   color: #ffb74d;
   font-style: italic;
+}
+
+.exits-info {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  color: #4CAF50;
+  font-size: 0.95em;
 }
 
 .game-input {

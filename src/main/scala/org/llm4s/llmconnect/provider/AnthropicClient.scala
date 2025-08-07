@@ -9,13 +9,21 @@ import org.llm4s.llmconnect.model._
 import org.llm4s.llmconnect.streaming._
 import org.llm4s.toolapi.{ ObjectSchema, ToolFunction }
 import org.llm4s.types.Result
-import org.llm4s.error.{ LLMError, AuthenticationError, RateLimitError, ValidationError }
+import org.llm4s.error.{ LLMError, AuthenticationError, RateLimitError, ServiceError, ValidationError }
+import org.slf4j.LoggerFactory
 
 import java.lang
 import java.util.Optional
 import scala.jdk.CollectionConverters._
 
 class AnthropicClient(config: AnthropicConfig) extends LLMClient {
+
+  private val logger = LoggerFactory.getLogger("AnthropicClient")
+
+  // anthropic require a max tokens parameter
+  // set a sensible default value.
+  val MAX_TOKENS_DEFAULT = 8192 // Default max tokens for Anthropic
+
   // Initialize Anthropic client
   private val client = AnthropicOkHttpClient
     .builder()
@@ -35,10 +43,14 @@ class AnthropicClient(config: AnthropicConfig) extends LLMClient {
         .temperature(options.temperature.floatValue())
         .topP(options.topP.floatValue())
 
-      // Add max tokens if specified
-      // max tokens is required by the api
-      val maxTokens = options.maxTokens.getOrElse(2048)
-      paramsBuilder.maxTokens(maxTokens)
+      options.maxTokens match {
+        case Some(maxTokens) =>
+          paramsBuilder.maxTokens(maxTokens)
+
+        case None =>
+          logger.warn(s"No max tokens specified, using default value of $MAX_TOKENS_DEFAULT.")
+          paramsBuilder.maxTokens(MAX_TOKENS_DEFAULT)
+      }
 
       // Add tools if specified
       if (options.tools.nonEmpty) {
@@ -274,8 +286,20 @@ curl https://api.anthropic.com/v1/messages \
       case UserMessage(content) =>
         paramsBuilder.addUserMessage(content)
 
-      case AssistantMessage(content, _) =>
-        paramsBuilder.addAssistantMessage(content.getOrElse(""))
+      case AssistantMessage(contentOpt, toolCalls) =>
+        // Anthropic requires non-empty content for all messages except the final assistant message
+        // If content is empty but we have tool calls, we need to handle this specially
+        val content = contentOpt.filter(_.nonEmpty).getOrElse {
+          // If there are tool calls but no content, add a minimal placeholder
+          if (toolCalls.nonEmpty) {
+            "I'll use a tool to help with this."
+          } else {
+            ""
+          }
+        }
+        if (content.nonEmpty) {
+          paramsBuilder.addAssistantMessage(content)
+        }
 
       case ToolMessage(toolCallId, content) =>
         // Anthropic doesn't have a direct equivalent to tool messages

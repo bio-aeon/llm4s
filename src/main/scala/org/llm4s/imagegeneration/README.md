@@ -60,8 +60,18 @@ sbt test
 
 ## Requirements
 
-- Stable Diffusion WebUI running on `http://localhost:7860` (default)
-- Or configure a different base URL in `StableDiffusionConfig`
+### For Local Stable Diffusion Setup
+
+- **Complete Setup Guide**: See [StableDiffusionSetup.md](../../../docs/StableDiffusionSetup.md) for detailed installation instructions
+- **Quick Setup**: Stable Diffusion WebUI running on `http://localhost:7860` (default)
+- **GPU Acceleration**: 
+  - Apple Silicon (M1/M2/M3/M4): Automatic MPS support
+  - NVIDIA GPU: CUDA acceleration with `--xformers`
+  - CPU mode: Available but very slow
+
+### For Remote/Cloud Services
+
+- Or configure a different base URL in `StableDiffusionConfig` for remote instances
 
 ## Architecture
 

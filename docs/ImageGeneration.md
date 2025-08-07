@@ -17,6 +17,14 @@ This client connects to an instance of the [AUTOMATIC1111/stable-diffusion-webui
 
 ### Setup
 
+**For detailed local installation**: See [StableDiffusionSetup.md](StableDiffusionSetup.md) for complete setup instructions including GPU acceleration on Apple Silicon.
+
+**Quick local setup summary**:
+1. Install Python 3.10.6
+2. Clone the WebUI repository
+3. Configure for your platform (GPU/CPU)
+4. Run `./webui.sh` (macOS/Linux) or `webui-user.bat` (Windows)
+
 First, ensure your `build.sbt` includes the `llm4s` dependency.
 
 ```scala
