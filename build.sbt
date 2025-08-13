@@ -10,7 +10,13 @@ val scala3CompilerOptions = Seq(
   "-explain-types",
   "-Wconf:cat=unused:s",   // suppress unused warnings
   "-Wconf:cat=deprecation:s", // suppress deprecation warnings
+<<<<<<< HEAD
   "-Wunused:nowarn",
+||||||| parent of 8bd3f68 (update: embedx-v2 on multimedia data)
+=======
+  "-feature",
+  "-unchecked",
+>>>>>>> 8bd3f68 (update: embedx-v2 on multimedia data)
   "-source:3.3",
   "-Wsafe-init",
   "-deprecation",
@@ -24,7 +30,6 @@ val scala2CompilerOptions = Seq(
   "-deprecation",
   "-Wunused:nowarn",
   "-Wunused:imports",
-  "-Wunused:privates",
   "-Wunused:locals",
   "-Wunused:patvars",
   "-Wunused:params",

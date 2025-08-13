@@ -10,8 +10,13 @@ object ModelDimensionRegistry {
     "voyage" -> Map(
       "voyage-2"       -> 1024,
       "voyage-3-large" -> 1536
+    ),
+    // NEW: local (non-text) “model” dims used by our stubs or future local encoders
+    "local" -> Map(
+      "openclip-vit-b32" -> 512,
+      "wav2vec2-base"    -> 768,
+      "timesformer-base" -> 768
     )
-    // Add more providers and models here
   )
 
   def getDimension(provider: String, model: String): Int =

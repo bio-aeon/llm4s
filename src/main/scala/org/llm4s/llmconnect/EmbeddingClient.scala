@@ -1,11 +1,18 @@
 package org.llm4s.llmconnect
 
 import org.llm4s.llmconnect.config.EmbeddingConfig
-import org.llm4s.llmconnect.model.{ EmbeddingRequest, EmbeddingResponse, EmbeddingError }
+import org.llm4s.llmconnect.model.{ EmbeddingRequest, EmbeddingResponse, EmbeddingError, EmbeddingVector }
 import org.llm4s.llmconnect.provider.{ EmbeddingProvider, OpenAIEmbeddingProvider, VoyageAIEmbeddingProvider }
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
+||||||| parent of 8bd3f68 (update: embedx-v2 on multimedia data)
+=======
+import org.llm4s.llmconnect.encoding.UniversalEncoder
+>>>>>>> 8bd3f68 (update: embedx-v2 on multimedia data)
 import org.slf4j.LoggerFactory
+
+import java.nio.file.Path
 
 class EmbeddingClient(provider: EmbeddingProvider) {
   private val logger = LoggerFactory.getLogger(getClass)
@@ -35,6 +42,10 @@ class EmbeddingClient(provider: EmbeddingProvider) {
 >>>>>>> 0013d53 (LoggerUtils to SLf4J logger)
     provider.embed(request)
   }
+
+  /** New: unified API to encode any supported file into vectors. */
+  def encodePath(path: Path): Either[EmbeddingError, Seq[EmbeddingVector]] =
+    UniversalEncoder.encodeFromPath(path, this)
 }
 
 object EmbeddingClient {
