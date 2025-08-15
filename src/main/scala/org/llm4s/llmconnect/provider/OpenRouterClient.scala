@@ -70,7 +70,7 @@ class OpenRouterClient(config: OpenAIConfig) extends LLMClient {
               "type" -> "function",
               "function" -> ujson.Obj(
                 "name"      -> tc.name,
-                "arguments" -> tc.arguments
+                "arguments" -> tc.arguments.render()
               )
             )
           })
@@ -110,12 +110,16 @@ class OpenRouterClient(config: OpenAIConfig) extends LLMClient {
     // Extract tool calls if present
     val toolCalls = Option(message.obj.get("tool_calls"))
       .map { tc =>
-        tc.arr.map { call =>
-          ToolCall(
-            id = call("id").str,
-            name = call("function")("name").str,
-            arguments = call("function")("arguments")
-          )
+        // OpenRouter returns double-nested arrays: [[{...}]] instead of [{...}]
+        // We need to flatten this structure
+        tc.arr.flatMap { callArray =>
+          callArray.arr.map { call =>
+            ToolCall(
+              id = call("id").str,
+              name = call("function")("name").str,
+              arguments = ujson.read(call("function")("arguments").str)
+            )
+          }
         }.toSeq
       }
       .getOrElse(Seq.empty)
