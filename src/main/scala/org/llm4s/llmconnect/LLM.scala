@@ -3,7 +3,6 @@ package org.llm4s.llmconnect
 import org.llm4s.llmconnect.config.ProviderConfig
 import org.llm4s.llmconnect.model._
 import org.llm4s.llmconnect.provider.LLMProvider
-import org.llm4s.types.Result
 
 object LLM {
 
@@ -19,7 +18,7 @@ object LLM {
     provider: LLMProvider,
     config: ProviderConfig,
     options: CompletionOptions = CompletionOptions()
-  ): Result[Completion] = {
+  ): Either[LLMError, Completion] = {
     val conversation = Conversation(messages)
     client(provider, config).complete(conversation, options)
   }
@@ -31,7 +30,7 @@ object LLM {
   def completeWithEnv(
     messages: Seq[Message],
     options: CompletionOptions = CompletionOptions()
-  ): Result[Completion] = {
+  ): Either[LLMError, Completion] = {
     val conversation = Conversation(messages)
     client().complete(conversation, options)
   }

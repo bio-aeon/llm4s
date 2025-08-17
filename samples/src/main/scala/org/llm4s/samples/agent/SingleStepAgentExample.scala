@@ -4,9 +4,20 @@ import org.llm4s.agent.{ AgentStatus, Agent }
 import org.llm4s.llmconnect.LLM
 import org.llm4s.toolapi.ToolRegistry
 import org.llm4s.toolapi.tools.WeatherTool
+import org.llm4s.trace.TracingFactory
 
 /**
- * Example demonstrating step-by-step agent execution for debugging
+ * Example demonstrating step-by-step agent execution for debugging with tracing support.
+ * 
+ * This sample shows how to:
+ * - Initialize an agent with tracing enabled
+ * - Run agent steps manually for debugging
+ * - Observe trace data in your configured backend
+ * 
+ * To enable tracing, set TRACING_MODE in your environment:
+ * - TRACING_MODE=langfuse (requires LANGFUSE_* env vars)
+ * - TRACING_MODE=print (outputs to console)
+ * - TRACING_MODE=none (default, no tracing)
  */
 object SingleStepAgentExample {
   def main(args: Array[String]): Unit = {
@@ -16,8 +27,15 @@ object SingleStepAgentExample {
     // Create a tool registry
     val toolRegistry = new ToolRegistry(Seq(WeatherTool.tool))
 
-    // Create an agent
-    val agent = new Agent(client)
+    // Create trace manager based on environment configuration
+    // This will use the TRACING_MODE environment variable:
+    // - "langfuse" for Langfuse tracing (requires LANGFUSE_* env vars)
+    // - "print" for console output tracing
+    // - "none" for no tracing (default)
+    val traceManager = TracingFactory.create()
+
+    // Create an agent with tracing enabled
+    val agent = new Agent(client, traceManager)
 
     // Define the user's query
     val query = "I'm planning a trip to Paris. What's the weather like there now?"
@@ -45,8 +63,9 @@ object SingleStepAgentExample {
           println(s"Step completed with status: ${state.status}")
           // Print the most recent message
           state.conversation.messages.lastOption.foreach { msg =>
+            val content = Option(msg.content).getOrElse("No content")
             println(
-              s"Last message (${msg.role}): ${msg.content.take(100)}${if (msg.content.length > 100) "..." else ""}"
+              s"Last message (${msg.role}): ${content.take(100)}${if (content.length > 100) "..." else ""}"
             )
           }
           

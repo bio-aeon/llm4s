@@ -4,9 +4,20 @@ import org.llm4s.agent.Agent
 import org.llm4s.llmconnect.LLM
 import org.llm4s.toolapi.ToolRegistry
 import org.llm4s.toolapi.tools.WeatherTool
+import org.llm4s.trace.TracingFactory
 
 /**
- * Example demonstrating complete agent execution with multiple steps
+ * Example demonstrating complete agent execution with multiple steps and tracing support.
+ *
+ * This sample shows how to:
+ * - Run an agent to completion with tracing enabled
+ * - Use trace metadata to distinguish different execution scenarios
+ * - Observe hierarchical trace data (agent → llm-completion → tool-execution)
+ *
+ * To enable tracing, set TRACING_MODE in your environment:
+ * - TRACING_MODE=langfuse (requires LANGFUSE_* env vars)
+ * - TRACING_MODE=print (outputs to console)
+ * - TRACING_MODE=none (default, no tracing)
  */
 object MultiStepAgentExample {
   def main(args: Array[String]): Unit = {
@@ -16,8 +27,15 @@ object MultiStepAgentExample {
     // Create a tool registry
     val toolRegistry = new ToolRegistry(Seq(WeatherTool.tool))
 
-    // Create an agent
-    val agent = new Agent(client)
+    // Create trace manager based on environment configuration
+    // This will use the TRACING_MODE environment variable:
+    // - "langfuse" for Langfuse tracing (requires LANGFUSE_* env vars)
+    // - "print" for console output tracing
+    // - "none" for no tracing (default)
+    val traceManager = TracingFactory.create()
+
+    // Create an agent with tracing enabled
+    val agent = new Agent(client, traceManager)
 
     // Define a multi-step query that requires comparing weather in different locations
     val query = "What's the weather like in London, and is it different from New York?"
@@ -31,7 +49,7 @@ object MultiStepAgentExample {
 
     // Example 1: Run the agent with no step limit and trace logging
     println("Example 1: Running without a step limit, with trace logging")
-    agent.run(query, toolRegistry, None, Some(traceLogPath), None) match {
+    agent.run(query, toolRegistry, None, Some(traceLogPath), Map("example" -> "unlimited_steps")) match {
       case Right(finalState) =>
         println(s"Final status: ${finalState.status}")
 
@@ -80,7 +98,7 @@ object MultiStepAgentExample {
     
     val limitedTraceLogPath = "/Users/rory.graves/workspace/home/llm4s/log/agent-trace-limited.md"
 
-    agent.run(query, toolRegistry, Some(1), Some(limitedTraceLogPath), None) match {
+    agent.run(query, toolRegistry, Some(1), Some(limitedTraceLogPath), Map("example" -> "step_limited")) match {
       case Right(finalState) =>
         println(s"Final status: ${finalState.status}")
 

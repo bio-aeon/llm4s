@@ -3,16 +3,14 @@ import com.anthropic.client.okhttp.AnthropicOkHttpClient
 import com.anthropic.core.{ JsonObject, ObjectMappers }
 import com.anthropic.models.messages
 import com.anthropic.models.messages.{ Message, MessageCreateParams, Tool }
-import org.llm4s.llmconnect.LLMClient
+import org.llm4s.llmconnect.BaseLLMClient
 import org.llm4s.llmconnect.config.AnthropicConfig
 import org.llm4s.llmconnect.model._
 import org.llm4s.toolapi.{ ObjectSchema, ToolFunction }
-import org.llm4s.types.Result
-import org.llm4s.error.LLMError
 
 import scala.jdk.CollectionConverters._
 
-class AnthropicClient(config: AnthropicConfig) extends LLMClient {
+class AnthropicClient(config: AnthropicConfig) extends BaseLLMClient {
   // Initialize Anthropic client
   private val client = AnthropicOkHttpClient
     .builder()
@@ -20,10 +18,10 @@ class AnthropicClient(config: AnthropicConfig) extends LLMClient {
     .baseUrl(config.baseUrl)
     .build()
 
-  override def complete(
+  override protected def doComplete(
     conversation: Conversation,
     options: CompletionOptions
-  ): Result[Completion] =
+  ): Either[LLMError, Completion] =
     try {
       // Create message parameters builder
       val paramsBuilder = MessageCreateParams
@@ -56,13 +54,13 @@ class AnthropicClient(config: AnthropicConfig) extends LLMClient {
       Right(convertFromAnthropicResponse(response))
     } catch {
       case e: com.anthropic.errors.UnauthorizedException =>
-        Left(LLMError.AuthenticationError(e.getMessage, "anthropic"))
+        Left(AuthenticationError(e.getMessage))
       case e: com.anthropic.errors.RateLimitException =>
-        Left(LLMError.RateLimitError(e.getMessage, None, "anthropic"))
+        Left(RateLimitError(e.getMessage))
       case e: com.anthropic.errors.AnthropicInvalidDataException =>
-        Left(LLMError.ValidationError(e.getMessage, "input"))
+        Left(ValidationError(e.getMessage))
       case e: Exception =>
-        Left(LLMError.fromThrowable(e))
+        Left(UnknownError(e))
     }
 
   /*
@@ -89,12 +87,12 @@ curl https://api.anthropic.com/v1/messages \
     "messages": [{"role": "user", "content": "What is the weather like in San Francisco?"}]
 }'
    */
-  override def streamComplete(
+  override protected def doStreamComplete(
     conversation: Conversation,
-    options: CompletionOptions = CompletionOptions(),
+    options: CompletionOptions,
     onChunk: StreamedChunk => Unit
-  ): Result[Completion] =
-    Left(LLMError.ServiceError("Streaming with anthropic not supported", 501, "anthropic"))
+  ): Either[LLMError, Completion] =
+    throw new NotImplementedError("Streaming with anthropic not supported")
 
   // Add messages from conversation to the parameters builder
   private def addMessagesToParams(
@@ -183,6 +181,7 @@ curl https://api.anthropic.com/v1/messages \
         contentOpt = content,
         toolCalls = toolCalls
       ),
+      model = response.model().toString,
       usage = Some(
         TokenUsage(
           promptTokens = response.usage().inputTokens().toInt,

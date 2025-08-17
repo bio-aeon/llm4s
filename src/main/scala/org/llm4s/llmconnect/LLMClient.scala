@@ -1,27 +1,22 @@
 package org.llm4s.llmconnect
 
 import org.llm4s.llmconnect.model._
-import org.llm4s.types.Result
-import org.llm4s.Result
+import org.llm4s.trace.{ NoOpSpan, Span }
 
 trait LLMClient {
 
   /** Complete a conversation and get a response */
   def complete(
     conversation: Conversation,
-    options: CompletionOptions = CompletionOptions()
-  ): Result[Completion]
+    options: CompletionOptions = CompletionOptions(),
+    span: Span = NoOpSpan
+  ): Either[LLMError, Completion]
 
   /** Stream a completion with callback for chunks */
   def streamComplete(
     conversation: Conversation,
     options: CompletionOptions = CompletionOptions(),
-    onChunk: StreamedChunk => Unit
-  ): Result[Completion]
-
-  /** Validate client configuration */
-  def validate(): Result[Unit] = Result.success(())
-
-  /** Close client and cleanup resources */
-  def close(): Unit = ()
+    onChunk: StreamedChunk => Unit,
+    span: Span = NoOpSpan
+  ): Either[LLMError, Completion]
 }

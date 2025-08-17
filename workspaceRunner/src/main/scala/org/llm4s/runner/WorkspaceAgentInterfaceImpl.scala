@@ -552,7 +552,7 @@ class WorkspaceAgentInterfaceImpl(workspaceRoot: String) extends WorkspaceAgentI
   override def executeCommand(
     command: String,
     workingDirectory: Option[String] = None,
-    timeoutSeconds: Option[Int] = None,
+    timeout: Option[Int] = None,
     environment: Option[Map[String, String]] = None
   ): ExecuteCommandResponse = {
     val workDir = workingDirectory
@@ -567,7 +567,7 @@ class WorkspaceAgentInterfaceImpl(workspaceRoot: String) extends WorkspaceAgentI
       )
     }
 
-    val timeoutMs = (timeoutSeconds.getOrElse(30 /* Default 30 seconds */ ) * 1000).toLong
+    val timeoutMs = timeout.getOrElse(30000).toLong // Default 30 seconds in milliseconds
     val env       = environment.getOrElse(Map.empty)
 
     val cmd = if (System.getProperty("os.name").contains("Windows")) {
@@ -607,14 +607,14 @@ class WorkspaceAgentInterfaceImpl(workspaceRoot: String) extends WorkspaceAgentI
 
         if (!completed) {
           process.destroy()
-          throw new WorkspaceAgentException(
-            s"Command execution timed out after ${timeoutMs}ms",
-            "TIMEOUT",
-            None
-          )
+          // For timeout, we'll return a response with exit code 124 (standard timeout exit code)
+          // and include timeout information in stderr
+          val timeoutSeconds = timeoutMs / 1000
+          stderr.append(s"Command execution timed out after $timeoutSeconds seconds\n")
+          124 // Standard timeout exit code
+        } else {
+          process.exitValue()
         }
-
-        process.exitValue()
       } catch {
         case e: Exception if !e.isInstanceOf[WorkspaceAgentException] =>
           throw new WorkspaceAgentException(

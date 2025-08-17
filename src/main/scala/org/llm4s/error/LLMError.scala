@@ -32,9 +32,10 @@ sealed abstract class LLMError extends Product with Serializable {
 
   /** Converts to a formatted error message with context */
   def formatted: String = {
-    val contextStr = if (context.nonEmpty) {
-      s" [${context.map { case (k, v) => s"$k: $v" }.mkString(", ")}]"
-    } else ""
+    val contextStr = context
+      .getOrElse("details", "No additional context")
+      .map(c => s" [Context Details: $c]")
+      .mkString(", ")
 
     val codeStr = code.map(c => s" (Code: $c)").getOrElse("")
     s"${getClass.getSimpleName}: $message$codeStr$contextStr"
@@ -134,60 +135,12 @@ object LLMError {
    */
   final case class UnknownError(
     override val message: String,
-    cause: Option[Throwable] = None
-  ) extends LLMError {
-    override val context: Map[String, String] = cause match {
-      case Some(ex) =>
-        Map(
-          "exceptionType" -> ex.getClass.getSimpleName,
-          "stackTrace"    -> ex.getStackTrace.take(3).mkString("; ")
-        )
-      case None => Map.empty
-    }
-  }
-
-  /**
-   * Image processing errors
-   */
-  final case class ProcessingError(
-    override val message: String,
-    operation: String,
-    cause: Option[Throwable] = None
-  ) extends LLMError {
-    override val context: Map[String, String] = Map("operation" -> operation) ++
-      cause.map(c => "cause" -> c.getMessage).toMap
-  }
-
-  /**
-   * Invalid input errors for image processing
-   */
-  final case class InvalidInputError(
-    override val message: String,
-    field: String,
-    value: String,
-    reason: String
+    cause: Throwable
   ) extends LLMError {
     override val context: Map[String, String] = Map(
-      "field"  -> field,
-      "value"  -> value,
-      "reason" -> reason
+      "exceptionType" -> cause.getClass.getSimpleName,
+      "stackTrace"    -> cause.getStackTrace.take(3).mkString("; ")
     )
-  }
-
-  /**
-   * API errors for external image processing services
-   */
-  final case class APIError(
-    override val message: String,
-    provider: String,
-    statusCode: Option[Int] = None,
-    responseBody: Option[String] = None
-  ) extends LLMError {
-    override val isRecoverable: Boolean   = statusCode.exists(_ >= 500)
-    override val retryDelay: Option[Long] = if (isRecoverable) Some(2000) else None
-    override val context: Map[String, String] = Map("provider" -> provider) ++
-      statusCode.map("statusCode" -> _.toString) ++
-      responseBody.map("responseBody" -> _)
   }
 
   // Smart constructors
@@ -203,21 +156,6 @@ object LLMError {
   def missingConfig(keys: List[String]): LLMError =
     ConfigurationError(s"Missing configuration: ${keys.mkString(", ")}", keys)
 
-  // Image processing error constructors
-  def processingFailed(operation: String, message: String, cause: Option[Throwable] = None): LLMError =
-    ProcessingError(s"Image processing failed during $operation: $message", operation, cause)
-
-  def invalidImageInput(field: String, value: String, reason: String): LLMError =
-    InvalidInputError(s"Invalid image input for $field: $value", field, value, reason)
-
-  def apiCallFailed(
-    provider: String,
-    message: String,
-    statusCode: Option[Int] = None,
-    responseBody: Option[String] = None
-  ): LLMError =
-    APIError(s"API call to $provider failed: $message", provider, statusCode, responseBody)
-
   def fromThrowable(throwable: Throwable): LLMError = throwable match {
     case _: java.net.SocketTimeoutException =>
       NetworkError("Network error", Some(throwable), endpoint = "Unknown")
@@ -228,6 +166,6 @@ object LLMError {
     case ex if ex.getMessage != null && ex.getMessage.contains("429") =>
       RateLimitError("Rate limited", None, "Unknown Provider")
     case ex =>
-      UnknownError(Option(ex.getMessage).getOrElse("Unknown error"), Some(ex))
+      UnknownError(Option(ex.getMessage).getOrElse("Unknown error"), ex)
   }
 }

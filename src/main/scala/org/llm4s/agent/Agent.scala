@@ -3,16 +3,19 @@ package org.llm4s.agent
 import org.llm4s.llmconnect.LLMClient
 import org.llm4s.llmconnect.model._
 import org.llm4s.toolapi._
+import org.llm4s.trace._
 import org.slf4j.LoggerFactory
-import org.llm4s.types.Result
 
 import scala.annotation.tailrec
 import scala.util.{ Failure, Success, Try }
 
 /**
- * Basic Agent implementation.
+ * Basic Agent implementation with optional tracing support.
+ *
+ * @param client The LLM client to use for completions
+ * @param traceManager Optional trace manager for observability
  */
-class Agent(client: LLMClient) {
+class Agent(client: LLMClient, traceManager: TraceManager = NoOpTraceManager) {
   private val logger = LoggerFactory.getLogger(getClass)
 
   /**
@@ -24,7 +27,7 @@ class Agent(client: LLMClient) {
    * @return A new AgentState initialized with the query and tools
    */
   def initialize(query: String, tools: ToolRegistry, systemPromptAddition: Option[String] = None): AgentState = {
-    val baseSystemPrompt = """You are a helpful assistant with access to tools. 
+    val baseSystemPrompt = """You are a helpful assistant with access to tools.
         |Follow these steps:
         |1. Analyze the user's question and determine which tools you need to use
         |2. Use the necessary tools to find the information needed
@@ -51,15 +54,27 @@ class Agent(client: LLMClient) {
   /**
    * Runs a single step of the agent's reasoning process
    */
-  def runStep(state: AgentState): Result[AgentState] =
+  def runStep(state: AgentState): Either[LLMError, AgentState] =
     state.status match {
       case AgentStatus.InProgress =>
         // Get tools from registry and create completion options
         val options = CompletionOptions(tools = state.tools.tools)
 
         logger.debug("Running completion step with tools: {}", state.tools.tools.map(_.name).mkString(", "))
-        // Request next step from LLM
-        client.complete(state.conversation, options) match {
+
+        // Execute LLM completion within a span for proper tracking
+        val result = traceManager.currentTrace match {
+          case Some(trace) =>
+            trace.span("agent-llm-completion") { span =>
+              span.addMetadata("tools_available", state.tools.tools.map(_.name).mkString(", "))
+              span.addMetadata("message_count", state.conversation.messages.size)
+              client.complete(state.conversation, options, span)
+            }
+          case None =>
+            client.complete(state.conversation, options, NoOpSpan)
+        }
+
+        result match {
           case Right(completion) =>
             val logMessage = completion.message.toolCalls match {
               case Seq() => s"[assistant] text: ${completion.message.content}"
@@ -99,11 +114,34 @@ class Agent(client: LLMClient) {
             val logMessage   = s"[tools] executing ${assistantMessage.toolCalls.size} tools (${toolNames})"
             val stateWithLog = state.log(logMessage)
 
-            // Process the tool calls
-            Try {
-              logger.debug("Processing {} tool calls", assistantMessage.toolCalls.size)
-              processToolCalls(stateWithLog, assistantMessage.toolCalls)
-            } match {
+            // Process the tool calls with tracing
+            val processResult = traceManager.currentTrace match {
+              case Some(trace) =>
+                trace.span("tool-execution") { span =>
+                  span.addMetadata("tool_count", assistantMessage.toolCalls.size)
+                  span.addMetadata("tools", toolNames)
+
+                  Try {
+                    logger.debug("Processing {} tool calls", assistantMessage.toolCalls.size)
+                    processToolCalls(stateWithLog, assistantMessage.toolCalls, Some(span))
+                  } match {
+                    case Success(state) =>
+                      span.addMetadata("status", "success")
+                      Success(state)
+                    case Failure(error) =>
+                      span.setStatus(SpanStatus.Error)
+                      span.recordError(error)
+                      Failure(error)
+                  }
+                }
+              case None =>
+                Try {
+                  logger.debug("Processing {} tool calls", assistantMessage.toolCalls.size)
+                  processToolCalls(stateWithLog, assistantMessage.toolCalls, None)
+                }
+            }
+
+            processResult match {
               case Success(newState) =>
                 logger.debug("Tool processing successful - continuing")
                 Right(newState.withStatus(AgentStatus.InProgress))
@@ -125,7 +163,11 @@ class Agent(client: LLMClient) {
   /**
    * Process tool calls and add the results to the conversation
    */
-  private def processToolCalls(state: AgentState, toolCalls: Seq[ToolCall]): AgentState = {
+  private def processToolCalls(
+    state: AgentState,
+    toolCalls: Seq[ToolCall],
+    parentSpan: Option[Span]
+  ): AgentState = {
     val toolRegistry = state.tools
 
     // Process each tool call and create tool messages
@@ -135,7 +177,29 @@ class Agent(client: LLMClient) {
       logger.info("Executing tool: {} with arguments: {}", toolCall.name, toolCall.arguments)
 
       val request = ToolCallRequest(toolCall.name, toolCall.arguments)
-      val result  = toolRegistry.execute(request)
+
+      // Execute with tracing if we have a parent span
+      val result = parentSpan match {
+        case Some(span) =>
+          span.span(s"tool-${toolCall.name}") { toolSpan =>
+            toolSpan.addMetadata("tool_name", toolCall.name)
+            toolSpan.setInput(toolCall.arguments)
+
+            val toolResult = toolRegistry.execute(request)
+
+            toolResult match {
+              case Right(json) =>
+                toolSpan.setOutput(json.render())
+              case Left(error) =>
+                toolSpan.setStatus(SpanStatus.Error)
+                toolSpan.recordError(new Exception(error.toString))
+            }
+
+            toolResult
+          }
+        case None =>
+          toolRegistry.execute(request)
+      }
 
       val endTime  = System.currentTimeMillis()
       val duration = endTime - startTime
@@ -306,13 +370,26 @@ class Agent(client: LLMClient) {
   def run(
     initialState: AgentState,
     maxSteps: Option[Int] = None,
-    traceLogPath: Option[String] = None
-  ): Result[AgentState] = {
+    traceLogPath: Option[String] = None,
+    traceMetadata: Map[String, Any] = Map.empty
+  ): Either[LLMError, AgentState] = {
+    // Create a trace for the entire agent execution
+    val trace = traceManager.createTrace(
+      name = "agent-execution",
+      metadata = traceMetadata ++ Map(
+        "query"     -> initialState.userQuery,
+        "tools"     -> initialState.tools.tools.map(_.name).mkString(", "),
+        "max_steps" -> maxSteps.getOrElse("unlimited")
+      )
+    )
+
+    trace.setInput(initialState.userQuery)
+
     // Write initial state if tracing is enabled
     traceLogPath.foreach(path => writeTraceLog(initialState, path))
 
     @tailrec
-    def runUntilCompletion(state: AgentState, stepsRemaining: Option[Int] = maxSteps): Result[AgentState] =
+    def runUntilCompletion(state: AgentState, stepsRemaining: Option[Int] = maxSteps): Either[LLMError, AgentState] =
       (state.status, stepsRemaining) match {
         // Check for step limit before executing either type of step
         case (s, Some(0)) if s == AgentStatus.InProgress || s == AgentStatus.WaitingForTools =>
@@ -351,7 +428,33 @@ class Agent(client: LLMClient) {
           Right(state) // Complete or Failed
       }
 
-    runUntilCompletion(initialState)
+    val result = runUntilCompletion(initialState)
+
+    // Set trace output and status based on result
+    result match {
+      case Right(finalState) =>
+        trace.addMetadata("final_status", finalState.status.toString)
+        trace.addMetadata("steps_executed", finalState.logs.size)
+
+        finalState.status match {
+          case AgentStatus.Complete =>
+            // Find the final assistant message
+            finalState.conversation.messages.reverse
+              .collectFirst { case msg: AssistantMessage if msg.content != null => msg.content }
+              .foreach(trace.setOutput)
+          case AgentStatus.Failed(message) =>
+            trace.recordError(new Exception(message))
+          case _ =>
+            trace.addMetadata("incomplete_reason", "unexpected_status")
+        }
+      case Left(error) =>
+        trace.recordError(new Exception(error.toString))
+    }
+
+    // Ensure trace is finished
+    trace.finish()
+
+    result
   }
 
   /**
@@ -370,7 +473,7 @@ class Agent(client: LLMClient) {
     maxSteps: Option[Int],
     traceLogPath: Option[String],
     systemPromptAddition: Option[String]
-  ): Result[AgentState] = {
+  ): Either[LLMError, AgentState] = {
     val initialState = initialize(query, tools, systemPromptAddition)
     run(initialState, maxSteps, traceLogPath)
   }

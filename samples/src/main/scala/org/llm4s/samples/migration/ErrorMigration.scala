@@ -1,6 +1,6 @@
 package org.llm4s.samples.migration
 
-import org.llm4s.llmconnect.LLMConnect
+import org.llm4s.llmconnect.LLMConnectV2
 import org.llm4s.llmconnect.model._
 import org.llm4s.error.LLMError
 import org.llm4s.types.Result
@@ -8,10 +8,10 @@ import org.llm4s.types.Result
 object ErrorMigration {
 
   /**
-   * CURRENT CODE (uses enhanced error types):
+   * OLD CODE (still works, but uses simple error types):
    */
-  def currentApproach(): Unit = {
-    val client = LLMConnect.getClient()
+  def oldApproach(): Unit = {
+    val client = org.llm4s.llmconnect.LLMConnect.getClient()
     val conversation = Conversation(
       Seq(
         SystemMessage("You are helpful"),
@@ -19,7 +19,28 @@ object ErrorMigration {
       )
     )
 
-    val result: Result[Completion] = client.complete(conversation)
+    val result: Either[org.llm4s.llmconnect.model.LLMError, Completion] =
+      client.complete(conversation)
+
+    result match {
+      case Right(completion) => println(completion.message.content)
+      case Left(error)       => println(s"Error: ${error.message}") // Limited error info
+    }
+  }
+
+  /**
+   * NEW CODE (enhanced error handling with rich context):
+   */
+  def newApproach(): Unit = {
+    val enhancedClient = LLMConnectV2.enhancedClient()
+    val conversation = Conversation(
+      Seq(
+        SystemMessage("You are helpful"),
+        UserMessage("What is Scala?")
+      )
+    )
+
+    val result: Result[Completion] = enhancedClient.complete(conversation)
 
     result match {
       case Right(completion) =>

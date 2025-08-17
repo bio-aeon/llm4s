@@ -109,9 +109,8 @@ lazy val commonSettings = Seq(
   libraryDependencies ++= List(
     "org.typelevel" %% "cats-core"       % "2.13.0",
     "com.lihaoyi"   %% "upickle"         % "4.2.1",
+    "com.lihaoyi"   %% "pprint"          % "0.9.0",
     "ch.qos.logback" % "logback-classic" % "1.5.18",
-    "dev.optics" %% "monocle-core"  % "3.3.0",
-    "dev.optics" %% "monocle-macro" % "3.3.0",
     "org.scalatest" %% "scalatest"       % "3.2.19" % Test
   )
 )
@@ -137,9 +136,14 @@ lazy val root = (project in file("."))
       "org.apache.poi" % "poi-ooxml" % "5.4.1",
       "com.lihaoyi" %% "requests" % "0.9.0",
       "org.jsoup" % "jsoup" % "1.21.1",
-      "io.github.cdimascio" % "dotenv-java" % "3.0.0"
-    )
+      "io.github.cdimascio" % "dotenv-java" % "3.0.0",
 
+      // BSP and LSP dependencies for Scala SWE Agent (Phase 2)
+      "ch.epfl.scala" % "bsp4j" % "2.1.1",
+      "org.eclipse.lsp4j" % "org.eclipse.lsp4j" % "0.24.0"
+      // TODO: Re-add bloop-rifle once dependency is available
+      // "ch.epfl.scala" %% "bloop-rifle" % "2.0.10",
+    )
   )
 
 lazy val shared = (project in file("shared"))
@@ -159,15 +163,24 @@ lazy val workspaceRunner = (project in file("workspaceRunner"))
     dockerBaseImage     := "eclipse-temurin:21-jdk",
     Compile / mainClass := Some("org.llm4s.runner.RunnerMain"),
     name                := "workspace-runner",
+    Docker / packageName := "llm4s-workspace-runner",
+    Docker / version := "latest",
     commonSettings,
     libraryDependencies ++= List(
       "com.lihaoyi"   %% "cask"            % "0.10.2",
       "com.lihaoyi"   %% "requests"        % "0.9.0",
+      // BSP and LSP dependencies for Scala SWE Agent
+      "ch.epfl.scala" % "bsp4j" % "2.1.1",
+      "org.eclipse.lsp4j" % "org.eclipse.lsp4j" % "0.24.0"
     ),
     Docker / dockerBuildOptions := Seq("--platform=linux/amd64"),
     dockerCommands ++= Seq(
       Cmd("USER", "root"),
-      Cmd("RUN", "apt-get update && apt-get install -y curl gnupg apt-transport-https ca-certificates zip unzip"),
+
+      // Install basic development tools
+      Cmd("RUN", "apt-get update && apt-get install -y curl gnupg apt-transport-https ca-certificates zip unzip git tree jq python3"),
+
+      // Install SBT
       Cmd(
         "RUN",
         "echo 'deb https://repo.scala-sbt.org/scalasbt/debian all main' | tee /etc/apt/sources.list.d/sbt.list"
@@ -177,12 +190,28 @@ lazy val workspaceRunner = (project in file("workspaceRunner"))
         "curl -sL 'https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x2EE0EA64E40A89B84B2DF73499E82A75642AC823' | apt-key add"
       ),
       Cmd("RUN", "apt-get update && apt-get install -y sbt"),
+
+      // Install SDKMAN and Scala versions
       Cmd("RUN", "curl -s 'https://get.sdkman.io' | bash"),
       Cmd(
         "RUN",
         "bash -c 'source /root/.sdkman/bin/sdkman-init.sh && sdk install scala " + scala3 + " && sdk install scala " + scala213 + "'"
       ),
-      Cmd("ENV", "PATH=/root/.sdkman/candidates/scala/current/bin:$PATH")
+
+      // TODO: Install Bloop and Metals later
+      // For now, just set up the environment for future installation
+
+      // Set up environment variables for optimal performance
+      Cmd("ENV", "PATH=\"/root/.sdkman/candidates/scala/current/bin:/usr/local/bin:$PATH\""),
+      Cmd("ENV", "METALS_JVM_OPTS=\"-XX:+UseG1GC -XX:+UseStringDeduplication -Xss4m -Xms100m\""),
+      Cmd("ENV", "BLOOP_SERVER_HOST=\"127.0.0.1\""),
+      Cmd("ENV", "BLOOP_SERVER_PORT=\"8212\""),
+
+      // Create Bloop configuration directory
+      Cmd("RUN", "mkdir -p /root/.bloop"),
+
+      // Verify base installations
+      Cmd("RUN", "sbt --version && echo 'Scala tools ready'")
     )
   )
   .settings(
@@ -217,18 +246,24 @@ lazy val crossTestScala2 = (project in file("crosstest/scala2"))
   .settings(
     name               := "crosstest-scala2",
     scalaVersion       := scala213,
+    crossScalaVersions := Seq.empty, // Disable cross-compilation
     resolvers += Resolver.mavenLocal,
     resolvers += Resolver.defaultLocal,
-    libraryDependencies ++= crossLibDependencies.value
+    libraryDependencies ++= crossLibDependencies.value,
+    // Add shared as a library dependency instead of project dependency
+    libraryDependencies += "org.llm4s" %% "shared" % version.value
   )
 
 lazy val crossTestScala3 = (project in file("crosstest/scala3"))
   .settings(
     name               := "crosstest-scala3",
     scalaVersion       := scala3,
+    crossScalaVersions := Seq.empty, // Disable cross-compilation
     resolvers += Resolver.mavenLocal,
     resolvers += Resolver.defaultLocal,
     libraryDependencies ++= crossLibDependencies.value,
+    // Add shared as a library dependency instead of project dependency
+    libraryDependencies += "org.llm4s" %% "shared" % version.value,
     scalacOptions ++= scala3CompilerOptions
   )
 

@@ -1,5 +1,7 @@
 package org.llm4s.llmconnect.model
 
+import upickle.default._
+
 /**
  * Represents a message in a conversation with an LLM (Large Language Model).
  */
@@ -19,6 +21,10 @@ case class UserMessage(content: String) extends Message {
   val role = "user"
 }
 
+object UserMessage {
+  implicit val rw: ReadWriter[UserMessage] = macroRW
+}
+
 /**
  * Represents a system message, which is typically used to set context or instructions for the LLM.
  *
@@ -33,11 +39,17 @@ case class SystemMessage(content: String) extends Message {
   val role = "system"
 }
 
+object SystemMessage {
+  implicit val rw: ReadWriter[SystemMessage] = macroRW
+}
+
 object AssistantMessage {
   def apply(content: String): AssistantMessage =
     AssistantMessage(Some(content), Seq.empty)
   def apply(content: String, toolCalls: Seq[ToolCall]): AssistantMessage =
     AssistantMessage(Some(content), toolCalls)
+
+  implicit val rw: ReadWriter[AssistantMessage] = macroRW
 }
 
 /**
@@ -78,6 +90,10 @@ case class ToolMessage(
   override def toString: String = s"${role}(${toolCallId}): ${content}"
 }
 
+object ToolMessage {
+  implicit val rw: ReadWriter[ToolMessage] = macroRW
+}
+
 /**
  * Represents a tool call request from the LLM.
  *
@@ -91,4 +107,18 @@ case class ToolCall(
   arguments: ujson.Value
 ) {
   override def toString: String = s"ToolCall($id, $name, $arguments)"
+}
+
+object ToolCall {
+  implicit val rw: ReadWriter[ToolCall] = macroRW
+}
+
+// ReadWriter for the sealed trait hierarchy
+object Message {
+  implicit val rw: ReadWriter[Message] = ReadWriter.merge(
+    UserMessage.rw,
+    SystemMessage.rw,
+    AssistantMessage.rw,
+    ToolMessage.rw
+  )
 }

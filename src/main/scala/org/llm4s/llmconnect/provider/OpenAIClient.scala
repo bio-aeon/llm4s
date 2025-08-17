@@ -1,51 +1,29 @@
 package org.llm4s.llmconnect.provider
 
-import com.azure.ai.openai.{ OpenAIClient => AzureOpenAIClient, OpenAIClientBuilder, OpenAIServiceVersion }
+import com.azure.ai.openai.OpenAIClientBuilder
 import com.azure.ai.openai.models._
-import com.azure.core.credential.{ AzureKeyCredential, KeyCredential }
-import org.llm4s.llmconnect.LLMClient
-import org.llm4s.llmconnect.config.{ AzureConfig, OpenAIConfig }
+import com.azure.core.credential.KeyCredential
+import org.llm4s.llmconnect.BaseLLMClient
+import org.llm4s.llmconnect.config.OpenAIConfig
 import org.llm4s.llmconnect.model._
 import org.llm4s.toolapi.{ AzureToolHelper, ToolRegistry }
-import org.llm4s.types.Result
-import org.llm4s.error.LLMError
 
 import scala.jdk.CollectionConverters._
 
-/**
- * OpenAIClient implementation for both OpenAI and Azure OpenAI.
- *
- * This client supports both OpenAI's API and Azure's OpenAI service.
- * It handles message conversion, completion requests, and tool calls.
- */
-class OpenAIClient private (private val model: String, private val client: AzureOpenAIClient) extends LLMClient {
+class OpenAIClient(config: OpenAIConfig) extends BaseLLMClient {
+  // Initialize Azure OpenAI client with OpenAI credentials
+  private val client = new OpenAIClientBuilder()
+    .credential(new KeyCredential(config.apiKey))
+    .endpoint(config.baseUrl)
+    .buildClient()
 
-  /* * Constructor for OpenAI (non-Azure) */
-  def this(config: OpenAIConfig) = this(
-    config.model,
-    new OpenAIClientBuilder()
-      .credential(new KeyCredential(config.apiKey))
-      .endpoint(config.baseUrl)
-      .buildClient()
-  )
-
-  /** Constructor for Azure OpenAI */
-  def this(config: AzureConfig) = this(
-    config.model,
-    new OpenAIClientBuilder()
-      .credential(new AzureKeyCredential(config.apiKey))
-      .endpoint(config.endpoint)
-      .serviceVersion(OpenAIServiceVersion.valueOf(config.apiVersion))
-      .buildClient()
-  )
-
-  override def complete(
+  override protected def doComplete(
     conversation: Conversation,
     options: CompletionOptions
-  ): Result[Completion] =
+  ): Either[LLMError, Completion] =
     try {
       // Convert conversation to Azure format
-      val chatMessages = convertToOpenAIMessages(conversation)
+      val chatMessages = convertToAzureMessages(conversation)
 
       // Create chat options
       val chatOptions = new ChatCompletionsOptions(chatMessages)
@@ -68,23 +46,24 @@ class OpenAIClient private (private val model: String, private val client: Azure
       // This would need to be handled differently if organization header is required
 
       // Make API call
-      val completions = client.getChatCompletions(model, chatOptions)
+      val completions = client.getChatCompletions(config.model, chatOptions)
 
       // Convert response to our model
-      Right(convertFromOpenAIFormat(completions))
+      Right(convertFromAzureCompletion(completions))
     } catch {
-      case e: Exception => Left(LLMError.fromThrowable(e))
+      case e: Exception => Left(UnknownError(e))
     }
 
-  override def streamComplete(
+  override protected def doStreamComplete(
     conversation: Conversation,
-    options: CompletionOptions = CompletionOptions(),
+    options: CompletionOptions,
     onChunk: StreamedChunk => Unit
-  ): Result[Completion] =
-    // Simplified implementation for now
-    complete(conversation, options)
+  ): Either[LLMError, Completion] =
+    // Simplified implementation for now - just use regular completion
+    doComplete(conversation, options)
 
-  private def convertToOpenAIMessages(conversation: Conversation): java.util.ArrayList[ChatRequestMessage] = {
+  // Convert our Conversation to Azure's message format
+  private def convertToAzureMessages(conversation: Conversation): java.util.ArrayList[ChatRequestMessage] = {
     val messages = new java.util.ArrayList[ChatRequestMessage]()
 
     conversation.messages.foreach {
@@ -96,13 +75,13 @@ class OpenAIClient private (private val model: String, private val client: Azure
         val msg = new ChatRequestAssistantMessage(content.getOrElse(""))
         // Add tool calls if needed
         if (toolCalls.nonEmpty) {
-          val openAIToolCools = new java.util.ArrayList[ChatCompletionsToolCall]()
+          val azureToolCalls = new java.util.ArrayList[ChatCompletionsToolCall]()
           toolCalls.foreach { tc =>
             val function = new FunctionCall(tc.name, tc.arguments.render())
             val toolCall = new ChatCompletionsFunctionToolCall(tc.id, function)
-            openAIToolCools.add(toolCall)
+            azureToolCalls.add(toolCall)
           }
-          msg.setToolCalls(openAIToolCools)
+          msg.setToolCalls(azureToolCalls)
         }
         messages.add(msg)
       case ToolMessage(toolCallId, content) =>
@@ -112,7 +91,8 @@ class OpenAIClient private (private val model: String, private val client: Azure
     messages
   }
 
-  private def convertFromOpenAIFormat(completions: ChatCompletions): Completion = {
+  // Convert Azure completion to our model
+  private def convertFromAzureCompletion(completions: ChatCompletions): Completion = {
     val choice  = completions.getChoices.get(0)
     val message = choice.getMessage
 
@@ -126,6 +106,7 @@ class OpenAIClient private (private val model: String, private val client: Azure
         contentOpt = Some(message.getContent),
         toolCalls = toolCalls
       ),
+      model = Option(completions.getModel).getOrElse(config.model),
       usage = Option(completions.getUsage).map(u =>
         TokenUsage(
           promptTokens = u.getPromptTokens,

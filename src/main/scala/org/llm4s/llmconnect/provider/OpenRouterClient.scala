@@ -1,22 +1,20 @@
 package org.llm4s.llmconnect.provider
 
-import org.llm4s.llmconnect.LLMClient
+import org.llm4s.llmconnect.BaseLLMClient
 import org.llm4s.llmconnect.config.OpenAIConfig
 import org.llm4s.llmconnect.model._
 import org.llm4s.toolapi.ToolRegistry
-import org.llm4s.types.Result
-import org.llm4s.error.LLMError
 
 import java.net.URI
 import java.net.http.{ HttpClient, HttpRequest, HttpResponse }
 
-class OpenRouterClient(config: OpenAIConfig) extends LLMClient {
+class OpenRouterClient(config: OpenAIConfig) extends BaseLLMClient {
   private val httpClient = HttpClient.newHttpClient()
 
-  override def complete(
+  override protected def doComplete(
     conversation: Conversation,
     options: CompletionOptions
-  ): Result[Completion] =
+  ): Either[LLMError, Completion] =
     try {
       // Convert conversation to OpenRouter format
       val requestBody = createRequestBody(conversation, options)
@@ -41,21 +39,21 @@ class OpenRouterClient(config: OpenAIConfig) extends LLMClient {
           val responseJson = ujson.read(response.body())
           Right(parseCompletion(responseJson))
 
-        case 401    => Left(LLMError.AuthenticationError("Invalid API key", "openrouter"))
-        case 429    => Left(LLMError.RateLimitError("Rate limit exceeded", None, "openrouter"))
-        case status => Left(LLMError.ServiceError(s"OpenRouter API error: ${response.body()}", status, "openrouter"))
+        case 401    => Left(AuthenticationError("Invalid API key"))
+        case 429    => Left(RateLimitError("Rate limit exceeded"))
+        case status => Left(ServiceError(s"OpenRouter API error: ${response.body()}", status))
       }
     } catch {
-      case e: Exception => Left(LLMError.fromThrowable(e))
+      case e: Exception => Left(UnknownError(e))
     }
 
-  override def streamComplete(
+  override protected def doStreamComplete(
     conversation: Conversation,
-    options: CompletionOptions = CompletionOptions(),
+    options: CompletionOptions,
     onChunk: StreamedChunk => Unit
-  ): Result[Completion] =
+  ): Either[LLMError, Completion] =
     // Simplified implementation for now
-    complete(conversation, options)
+    doComplete(conversation, options)
 
   private def createRequestBody(conversation: Conversation, options: CompletionOptions): ujson.Obj = {
     val messages = conversation.messages.map {
@@ -141,6 +139,7 @@ class OpenRouterClient(config: OpenAIConfig) extends LLMClient {
         contentOpt = message("content").strOpt,
         toolCalls = toolCalls
       ),
+      model = json("model").str,
       usage = usage
     )
   }

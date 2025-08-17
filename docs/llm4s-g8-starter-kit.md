@@ -1,9 +1,6 @@
 llm4s.g8: sbt template for [llm4s]
 =================
-
-> **Note:** The LLM4S template has moved to its own repository at [github.com/llm4s/llm4s.g8](https://github.com/llm4s/llm4s.g8)
-
-[![Template CI](https://github.com/llm4s/llm4s.g8/actions/workflows/template-ci.yml/badge.svg)](https://github.com/llm4s/llm4s.g8/actions/workflows/template-ci.yml)
+[![CI](https://github.com/llm4s/llm4s/actions/workflows/llm4s-g8-template.yml/badge.svg)](https://github.com/llm4s/llm4s/actions/workflows/llm4s-g8-template.yml)
 
 A [Giter8][g8] template for [llm4s] project.
 

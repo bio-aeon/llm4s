@@ -4,14 +4,20 @@ import org.llm4s.agent.Agent
 import org.llm4s.llmconnect.LLM
 import org.llm4s.mcp._
 import org.llm4s.toolapi.tools.WeatherTool
+import org.llm4s.trace.TracingFactory
 import org.slf4j.LoggerFactory
 import scala.concurrent.duration._
 
 /**
- * Example demonstrating agent execution with MCP tool integration
+ * Example demonstrating agent execution with MCP tool integration and tracing support.
  *
  * This example shows how an LLM agent can seamlessly use both local tools 
- * and remote MCP tools with automatic fallback between transport protocols.
+ * and remote MCP tools with automatic fallback between transport protocols. with full tracing.
+ *
+ * To enable tracing, set TRACING_MODE in your environment:
+ * - TRACING_MODE=langfuse (requires LANGFUSE_* env vars)
+ * - TRACING_MODE=print (outputs to console)
+ * - TRACING_MODE=none (default, no tracing)
  *
  * Start the MCPServer first: sbt "samples/runMain org.llm4s.samples.mcp.DemonstrationMCPServer"
  * Then run: sbt "samples/runMain org.llm4s.samples.agent.MCPAgentExample"
@@ -24,7 +30,7 @@ object MCPAgentExample {
     
     // Set up MCP server configuration (automatically tries latest protocol with fallback)
     val serverConfig = MCPServerConfig.streamableHTTP(
-      name = "mcp-tools-server", 
+      name = "mcp-tools-server",
       url = "http://localhost:8080/mcp",
       timeout = 30.seconds
     )
@@ -60,9 +66,9 @@ object MCPAgentExample {
     val query = "Convert 100 USD to EUR and then check the weather in Paris"
     
     logger.info(s"🎯 Running agent query: $query")
-    
+
     val startTime = System.currentTimeMillis()
-    
+
     agent.run(
       query = query,
       tools = registry,
@@ -73,18 +79,18 @@ object MCPAgentExample {
       case Right(finalState) =>
         val duration = System.currentTimeMillis() - startTime
         logger.info(s"✅ Query completed in ${duration}ms")
-        
+
         // Show final answer
         finalState.conversation.messages.reverse.find(_.role == "assistant") match {
           case Some(msg) =>
             logger.info(s"💬 Agent Response: ${msg.content}")
-          case None => 
+          case None =>
             logger.warn("❌ No final answer found")
         }
-        
+
         // Show execution summary
         logger.info(s"📊 Summary: ${finalState.logs.size} execution steps")
-        
+
       case Left(error) =>
         logger.error(s"❌ Query failed: $error")
     }

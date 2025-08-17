@@ -1,6 +1,15 @@
 package org.llm4s.runner
 
 import org.llm4s.shared._
+import org.llm4s.runner.tools.{
+  BloopCompiler,
+  SbtProjectAnalyzer,
+  CodeAnalyzer,
+  SymbolSearcher,
+  DocumentAnalyzer,
+  ReferencesFinder,
+  DiagnosticsProvider
+}
 import org.slf4j.LoggerFactory
 import upickle.default._
 
@@ -30,6 +39,30 @@ object RunnerMain extends cask.MainRoutes {
 
   // Initialize workspace interface
   private val workspaceInterface = new WorkspaceAgentInterfaceImpl(workspacePath)
+
+  // Initialize Bloop server manager
+  private val bloopServerManager = new BloopServerManager()(ec)
+
+  // Initialize Metals tools and server manager
+  private val diagnosticsProvider = new DiagnosticsProvider()
+  private val metalsServerManager = new MetalsServerManager(workspacePath, Some(diagnosticsProvider))(ec)
+
+  // Initialize tool registry with BSP and LSP tools
+  private val bspTools = Seq(
+    new BloopCompiler(bloopServerManager),
+    new SbtProjectAnalyzer(bloopServerManager)
+  )
+
+  private val lspTools = Seq(
+    new CodeAnalyzer(metalsServerManager),
+    new SymbolSearcher(metalsServerManager),
+    new DocumentAnalyzer(metalsServerManager),
+    new ReferencesFinder(metalsServerManager),
+    diagnosticsProvider
+  )
+
+  private val allTools     = bspTools ++ lspTools
+  private val toolRegistry = new SimpleToolRegistry(allTools)
 
   // Track active connections and their last heartbeat
   private val connections                                 = new ConcurrentHashMap[cask.WsChannelActor, AtomicLong]()
@@ -93,6 +126,12 @@ object RunnerMain extends cask.MainRoutes {
       case HeartbeatMessage(timestamp) =>
         logger.debug(s"Received heartbeat at timestamp $timestamp")
         sendMessage(channel, HeartbeatResponseMessage(System.currentTimeMillis()))
+
+      case toolCall: ToolCallMessage =>
+        handleToolCall(channel, toolCall)
+
+      case toolList: ToolListMessage =>
+        handleToolList(channel, toolList)
 
       case _ =>
         logger.warn(s"Unexpected message type received: ${message.getClass.getSimpleName}")
@@ -242,6 +281,53 @@ object RunnerMain extends cask.MainRoutes {
       )
       .copy(commandId = cmd.commandId)
 
+  private def handleToolCall(channel: cask.WsChannelActor, toolCall: ToolCallMessage): Unit =
+    Future {
+      try {
+        logger.debug(s"Processing tool call: ${toolCall.toolName} with ID: ${toolCall.commandId}")
+
+        val simpleCall = SimpleToolCall(toolCall.toolName, toolCall.arguments)
+        val result     = toolRegistry.executeTool(simpleCall)
+
+        if (result.success) {
+          sendMessage(channel, ToolResultMessage(toolCall.commandId, result.result, success = true))
+        } else {
+          val errorMessage = result.error.getOrElse("Unknown error")
+          sendMessage(channel, ToolResultMessage(toolCall.commandId, ujson.Str(errorMessage), success = false))
+        }
+
+      } catch {
+        case e: Exception =>
+          logger.error(s"Unexpected error processing tool call ${toolCall.commandId}: ${e.getMessage}", e)
+          sendMessage(
+            channel,
+            ToolResultMessage(toolCall.commandId, ujson.Str(s"Unexpected error: ${e.getMessage}"), success = false)
+          )
+      }
+    }(using ec)
+
+  private def handleToolList(channel: cask.WsChannelActor, toolList: ToolListMessage): Unit =
+    Future {
+      try {
+        logger.debug(s"Processing tool list request with ID: ${toolList.commandId}")
+
+        val toolInfos = toolRegistry.getTools.map { tool =>
+          ToolInfo(
+            name = tool.name,
+            description = tool.description,
+            schema = tool.parameterSchema
+          )
+        }.toList
+
+        sendMessage(channel, ToolListResponseMessage(toolList.commandId, toolInfos))
+
+      } catch {
+        case e: Exception =>
+          logger.error(s"Unexpected error processing tool list ${toolList.commandId}: ${e.getMessage}", e)
+          sendError(channel, s"Failed to list tools: ${e.getMessage}", "TOOL_LIST_ERROR", Some(toolList.commandId))
+      }
+    }(using ec)
+
   private def sendMessage(channel: cask.WsChannelActor, message: WebSocketMessage): Unit =
     try {
       val json = write(message)
@@ -297,6 +383,28 @@ object RunnerMain extends cask.MainRoutes {
       Files.createDirectories(workspaceDir)
     }
 
+    // Start Bloop server asynchronously
+    logger.info("Starting Bloop build server...")
+    bloopServerManager
+      .startServer()
+      .onComplete {
+        case Success(_) =>
+          logger.info("✅ Bloop server started successfully and is ready for BSP connections")
+        case Failure(ex) =>
+          logger.error("❌ Failed to start Bloop server", ex)
+      }(using ec)
+
+    // Start Metals Language Server asynchronously
+    logger.info("Starting Metals Language Server...")
+    metalsServerManager
+      .startServer()
+      .onComplete {
+        case Success(_) =>
+          logger.info("✅ Metals Language Server started successfully and is ready for LSP connections")
+        case Failure(ex) =>
+          logger.error("❌ Failed to start Metals Language Server", ex)
+      }(using ec)
+
     startHeartbeatMonitor()
     logger.info(s"Using workspace path: $workspacePath")
     logger.info(s"Heartbeat timeout: ${HeartbeatTimeoutMs}ms")
@@ -327,6 +435,23 @@ object RunnerMain extends cask.MainRoutes {
    */
   def shutdown(): Unit = {
     logger.info("Shutting down WebSocket Runner service")
+
+    // Shutdown servers first
+    try {
+      import scala.concurrent.Await
+      import scala.concurrent.duration._
+
+      // Shutdown Metals server
+      Await.result(metalsServerManager.shutdown(), 15.seconds)
+      logger.info("Metals server shutdown completed")
+
+      // Shutdown Bloop server
+      Await.result(bloopServerManager.shutdown(), 15.seconds)
+      logger.info("Bloop server shutdown completed")
+    } catch {
+      case ex: Exception =>
+        logger.warn("Error during server shutdown", ex)
+    }
 
     try {
       heartbeatExecutor.shutdown()

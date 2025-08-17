@@ -10,6 +10,7 @@ import java.io.{ BufferedReader, File, InputStreamReader }
 import java.net.URI
 import java.util.concurrent.atomic.{ AtomicBoolean, AtomicReference }
 import java.util.concurrent.{ CompletableFuture, ConcurrentHashMap, Executors, ScheduledExecutorService, TimeUnit }
+import scala.concurrent.Future
 import scala.jdk.CollectionConverters._
 import scala.util.{ Failure, Success, Try }
 
@@ -22,12 +23,29 @@ import scala.util.{ Failure, Success, Try }
  * - Implementing heartbeats over the same connection
  * - Supporting real-time streaming of command output
  * - Eliminating thread pool blocking during long commands
+ *
+ * @param workspaceDir The directory to mount as workspace in the container
+ * @param port The host port to bind to (defaults to 8080, use 0 for random port)
  */
-class ContainerisedWorkspace(val workspaceDir: String) extends WorkspaceAgentInterface {
+class ContainerisedWorkspace(val workspaceDir: String, val port: Int = 8080) extends WorkspaceAgentInterface {
   private val logger        = LoggerFactory.getLogger(getClass)
   private val containerName = s"workspace-runner-${java.util.UUID.randomUUID().toString}"
-  private val port          = 8080
-  private val wsUrl         = s"ws://localhost:$port/ws"
+
+  // If port is 0, find a free port
+  private val actualPort = if (port == 0) findFreePort() else port
+  private val wsUrl      = s"ws://localhost:$actualPort/ws"
+
+  /**
+   * Find a free port by binding to port 0 and immediately releasing it
+   */
+  private def findFreePort(): Int = {
+    val socket = new java.net.ServerSocket(0)
+    try {
+      val port = socket.getLocalPort
+      logger.debug(s"Found free port: $port")
+      port
+    } finally socket.close()
+  }
 
   // Constants
   private val HeartbeatIntervalSeconds = 5
@@ -147,7 +165,7 @@ class ContainerisedWorkspace(val workspaceDir: String) extends WorkspaceAgentInt
    * Starts the workspace runner docker container and establishes WebSocket connection
    */
   def startContainer(): Boolean = {
-    logger.info(s"Starting workspace runner container: $containerName")
+    logger.info(s"Starting workspace runner container: $containerName on port $actualPort")
 
     // Ensure the workspace directory exists
     val dir = new File(workspaceDir)
@@ -164,10 +182,10 @@ class ContainerisedWorkspace(val workspaceDir: String) extends WorkspaceAgentInt
         "--name",
         containerName,
         "-p",
-        s"$port:8080",
+        s"$actualPort:8080",
         "-v",
         s"$workspaceDir:/workspace",
-        "docker.io/library/workspace-runner:0.1.0-SNAPSHOT"
+        "llm4s-workspace-runner:latest"
       )
       val process  = pb.start()
       val exitCode = process.waitFor()
@@ -217,7 +235,7 @@ class ContainerisedWorkspace(val workspaceDir: String) extends WorkspaceAgentInt
     while (attempts < MaxStartupAttempts) {
       try {
         // First check if HTTP endpoint is responding
-        val httpResponse = requests.get(s"http://localhost:$port/", readTimeout = 1000, connectTimeout = 1000)
+        val httpResponse = requests.get(s"http://localhost:$actualPort/", readTimeout = 1000, connectTimeout = 1000)
         if (httpResponse.statusCode == 200) {
           logger.info("HTTP endpoint is responding, attempting WebSocket connection...")
 
@@ -244,6 +262,12 @@ class ContainerisedWorkspace(val workspaceDir: String) extends WorkspaceAgentInt
   private def connectWebSocket(): Boolean =
     try {
       val client = new WorkspaceWebSocketClient(new URI(wsUrl))
+
+      // Configure the WebSocket client to handle long-running operations
+      // Set connection lost timeout to 5 minutes (300 seconds)
+      // This is how long the client waits for a pong response before considering the connection lost
+      client.setConnectionLostTimeout(300)
+
       wsClient.set(client)
 
       val connected = client.connectBlocking(ConnectionTimeoutMs, TimeUnit.MILLISECONDS)
@@ -363,8 +387,10 @@ class ContainerisedWorkspace(val workspaceDir: String) extends WorkspaceAgentInt
 
   /**
    * Sends a command via WebSocket and waits for the response
+   * @param command The command to send
+   * @param timeoutMs Optional timeout in milliseconds, defaults to 30 seconds
    */
-  private def sendCommand(command: WorkspaceAgentCommand): WorkspaceAgentResponse = {
+  private def sendCommand(command: WorkspaceAgentCommand, timeoutMs: Option[Long] = None): WorkspaceAgentResponse = {
     if (!wsConnected.get()) {
       throw new RuntimeException("WebSocket is not connected - cannot send command")
     }
@@ -386,7 +412,9 @@ class ContainerisedWorkspace(val workspaceDir: String) extends WorkspaceAgentInt
       }
 
       // Wait for response with timeout
-      val response = future.get(30, TimeUnit.SECONDS)
+      // Default to 30 seconds if no timeout specified
+      val effectiveTimeout = timeoutMs.getOrElse(30000L)
+      val response         = future.get(effectiveTimeout, TimeUnit.MILLISECONDS)
 
       response match {
         case error: WorkspaceAgentErrorResponse =>
@@ -489,15 +517,54 @@ class ContainerisedWorkspace(val workspaceDir: String) extends WorkspaceAgentInt
     timeout: Option[Int] = None,
     environment: Option[Map[String, String]] = None
   ): ExecuteCommandResponse = {
-    val cmd = ExecuteCommandCommand(
-      commandId = java.util.UUID.randomUUID().toString,
-      command = command,
-      workingDirectory = workingDirectory,
-      timeout = timeout,
-      environment = environment
-    )
-    sendCommand(cmd).asInstanceOf[ExecuteCommandResponse]
+    import scala.concurrent.Await
+    import scala.concurrent.duration._
+
+    // Execute asynchronously to avoid blocking WebSocket ping/pong handling
+    val future = executeCommandAsync(command, workingDirectory, timeout, environment)
+
+    // Calculate how long to wait for the result
+    // Add buffer time to account for command startup/shutdown overhead
+    val waitTimeout = timeout match {
+      case Some(ms) => (ms + 15000).millis // Command timeout + 15 second buffer
+      case None     => 45.seconds          // Default 45 seconds if no timeout specified
+    }
+
+    try
+      Await.result(future, waitTimeout)
+    catch {
+      case _: java.util.concurrent.TimeoutException =>
+        throw new WorkspaceAgentException(
+          s"Command execution timed out after ${waitTimeout.toSeconds} seconds",
+          "COMMAND_TIMEOUT",
+          Some(s"Command: $command")
+        )
+    }
   }
+
+  /**
+   * Execute a command asynchronously, returning a Future.
+   * This method ensures the WebSocket connection remains responsive during long-running commands.
+   */
+  def executeCommandAsync(
+    command: String,
+    workingDirectory: Option[String] = None,
+    timeout: Option[Int] = None,
+    environment: Option[Map[String, String]] = None
+  ): Future[ExecuteCommandResponse] =
+    Future {
+      val cmd = ExecuteCommandCommand(
+        commandId = java.util.UUID.randomUUID().toString,
+        command = command,
+        workingDirectory = workingDirectory,
+        timeout = timeout,
+        environment = environment
+      )
+      // Add buffer time to the response timeout to account for command startup/shutdown overhead
+      // If command has a timeout, wait for that plus 10 seconds, otherwise use default
+      val responseTimeout = timeout.map(t => t.toLong + 10000L)
+      sendCommand(cmd, responseTimeout).asInstanceOf[ExecuteCommandResponse]
+    }(scala.concurrent.ExecutionContext.global)
 
   override def getWorkspaceInfo(): GetWorkspaceInfoResponse = {
     val command = GetWorkspaceInfoCommand(
@@ -517,6 +584,9 @@ class ContainerisedWorkspace(val workspaceDir: String) extends WorkspaceAgentInt
     environment: Option[Map[String, String]] = None,
     outputHandler: StreamingOutputMessage => Unit = _ => ()
   ): ExecuteCommandResponse = {
+    import scala.concurrent.Await
+    import scala.concurrent.duration._
+
     val cmd = ExecuteCommandCommand(
       commandId = java.util.UUID.randomUUID().toString,
       command = command,
@@ -528,9 +598,29 @@ class ContainerisedWorkspace(val workspaceDir: String) extends WorkspaceAgentInt
     // Register streaming handler
     streamingHandlers.put(cmd.commandId, outputHandler)
 
-    try
-      sendCommand(cmd).asInstanceOf[ExecuteCommandResponse]
-    finally
-      streamingHandlers.remove(cmd.commandId)
+    try {
+      // Execute in a Future to avoid blocking WebSocket ping/pong handling
+      val future = Future {
+        // Add buffer time to the response timeout to account for command startup/shutdown overhead
+        val responseTimeout = timeout.map(t => t.toLong + 10000L)
+        sendCommand(cmd, responseTimeout).asInstanceOf[ExecuteCommandResponse]
+      }(scala.concurrent.ExecutionContext.global)
+
+      // Calculate how long to wait for the result
+      val waitTimeout = timeout match {
+        case Some(ms) => (ms + 15000).millis // Command timeout + 15 second buffer
+        case None     => 45.seconds          // Default 45 seconds if no timeout specified
+      }
+
+      Await.result(future, waitTimeout)
+    } catch {
+      case _: java.util.concurrent.TimeoutException =>
+        streamingHandlers.remove(cmd.commandId)
+        throw new WorkspaceAgentException(
+          s"Command execution timed out after ${timeout.map(_ / 1000).getOrElse(30)} seconds",
+          "COMMAND_TIMEOUT",
+          Some(s"Command: $command")
+        )
+    } finally streamingHandlers.remove(cmd.commandId)
   }
 }

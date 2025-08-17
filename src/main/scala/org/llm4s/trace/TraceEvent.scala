@@ -1,132 +1,257 @@
 package org.llm4s.trace
 
-import org.llm4s.llmconnect.model.TokenUsage
 import java.time.Instant
 
 /**
- * Type-safe trace events for better composability and type safety
+ * Represents different types of events that can occur during tracing.
+ * These events are collected and then sent to the tracing backend.
  */
 sealed trait TraceEvent {
+  def id: String
   def timestamp: Instant
-  def eventType: String
-  def toJson: ujson.Value
+  def traceId: String
 }
 
-object TraceEvent {
+/**
+ * Event for creating a new trace.
+ */
+case class TraceCreateEvent(
+  id: String,
+  timestamp: Instant,
+  traceId: String,
+  name: String,
+  userId: Option[String] = None,
+  sessionId: Option[String] = None,
+  metadata: Map[String, Any] = Map.empty,
+  tags: Set[String] = Set.empty,
+  input: Option[Any] = None
+) extends TraceEvent
 
-  case class AgentInitialized(
-    query: String,
-    tools: Vector[String],
-    timestamp: Instant = Instant.now()
-  ) extends TraceEvent {
-    def eventType: String = "agent_initialized"
-    def toJson: ujson.Value = ujson.Obj(
-      "event_type" -> eventType,
-      "timestamp"  -> timestamp.toString,
-      "query"      -> query,
-      "tools"      -> ujson.Arr(tools.map(ujson.Str(_)): _*)
-    )
-  }
+/**
+ * Event for updating an existing trace.
+ */
+case class TraceUpdateEvent(
+  id: String,
+  timestamp: Instant,
+  traceId: String,
+  metadata: Map[String, Any] = Map.empty,
+  tags: Set[String] = Set.empty,
+  output: Option[Any] = None,
+  status: Option[TraceStatus] = None,
+  error: Option[Throwable] = None
+) extends TraceEvent
 
-  case class CompletionReceived(
-    id: String,
-    model: String,
-    toolCalls: Int,
-    content: String,
-    timestamp: Instant = Instant.now()
-  ) extends TraceEvent {
-    def eventType: String = "completion_received"
-    def toJson: ujson.Value = ujson.Obj(
-      "event_type"    -> eventType,
-      "timestamp"     -> timestamp.toString,
-      "completion_id" -> id,
-      "model"         -> model,
-      "tool_calls"    -> toolCalls,
-      "content"       -> content
-    )
-  }
+/**
+ * Event for creating a new span.
+ */
+case class SpanCreateEvent(
+  id: String,
+  timestamp: Instant,
+  traceId: String,
+  spanId: String,
+  parentSpanId: Option[String],
+  name: String,
+  startTime: Instant,
+  metadata: Map[String, Any] = Map.empty,
+  tags: Set[String] = Set.empty,
+  input: Option[Any] = None
+) extends TraceEvent
 
-  case class ToolExecuted(
-    name: String,
-    input: String,
-    output: String,
-    duration: Long,
-    success: Boolean,
-    timestamp: Instant = Instant.now()
-  ) extends TraceEvent {
-    def eventType: String = "tool_executed"
-    def toJson: ujson.Value = ujson.Obj(
-      "event_type"  -> eventType,
-      "timestamp"   -> timestamp.toString,
-      "tool_name"   -> name,
-      "input"       -> input,
-      "output"      -> output,
-      "duration_ms" -> duration,
-      "success"     -> success
-    )
-  }
+/**
+ * Event for updating an existing span.
+ */
+case class SpanUpdateEvent(
+  id: String,
+  timestamp: Instant,
+  traceId: String,
+  spanId: String,
+  endTime: Option[Instant] = None,
+  metadata: Map[String, Any] = Map.empty,
+  tags: Set[String] = Set.empty,
+  input: Option[Any] = None,
+  output: Option[Any] = None,
+  status: Option[SpanStatus] = None,
+  error: Option[Throwable] = None
+) extends TraceEvent
 
-  case class ErrorOccurred(
-    error: Throwable,
-    context: String,
-    timestamp: Instant = Instant.now()
-  ) extends TraceEvent {
-    def eventType: String = "error_occurred"
-    def toJson: ujson.Value = ujson.Obj(
-      "event_type"    -> eventType,
-      "timestamp"     -> timestamp.toString,
-      "error_type"    -> error.getClass.getSimpleName,
-      "error_message" -> error.getMessage,
-      "context"       -> context,
-      "stack_trace"   -> error.getStackTrace.take(5).mkString("\n")
-    )
-  }
+/**
+ * Event for recording a discrete event during span execution.
+ */
+case class SpanEventEvent(
+  id: String,
+  timestamp: Instant,
+  traceId: String,
+  spanId: String,
+  eventName: String,
+  eventTime: Instant,
+  attributes: Map[String, Any] = Map.empty
+) extends TraceEvent
 
-  case class TokenUsageRecorded(
-    usage: TokenUsage,
-    model: String,
-    operation: String,
-    timestamp: Instant = Instant.now()
-  ) extends TraceEvent {
-    def eventType: String = "token_usage_recorded"
-    def toJson: ujson.Value = ujson.Obj(
-      "event_type"        -> eventType,
-      "timestamp"         -> timestamp.toString,
-      "model"             -> model,
-      "operation"         -> operation,
-      "prompt_tokens"     -> usage.promptTokens,
-      "completion_tokens" -> usage.completionTokens,
-      "total_tokens"      -> usage.totalTokens
-    )
-  }
+/**
+ * Event for recording an LLM generation (API call).
+ */
+case class GenerationEvent(
+  id: String,
+  timestamp: Instant,
+  traceId: String,
+  spanId: Option[String],
+  name: String,
+  startTime: Instant,
+  endTime: Option[Instant] = None,
+  model: String,
+  modelParameters: Map[String, Any] = Map.empty,
+  input: Option[Any] = None,
+  output: Option[Any] = None,
+  usage: Option[TokenUsage] = None,
+  metadata: Map[String, Any] = Map.empty,
+  promptName: Option[String] = None,
+  level: Option[String] = None,
+  statusMessage: Option[String] = None
+) extends TraceEvent
 
-  case class AgentStateUpdated(
-    status: String,
-    messageCount: Int,
-    logCount: Int,
-    timestamp: Instant = Instant.now()
-  ) extends TraceEvent {
-    def eventType: String = "agent_state_updated"
-    def toJson: ujson.Value = ujson.Obj(
-      "event_type"    -> eventType,
-      "timestamp"     -> timestamp.toString,
-      "status"        -> status,
-      "message_count" -> messageCount,
-      "log_count"     -> logCount
-    )
-  }
+/**
+ * Event for updating an existing LLM generation.
+ */
+case class GenerationUpdateEvent(
+  id: String,
+  timestamp: Instant,
+  traceId: String,
+  generationId: String,
+  endTime: Option[Instant] = None,
+  output: Option[Any] = None,
+  usage: Option[TokenUsage] = None,
+  metadata: Map[String, Any] = Map.empty
+) extends TraceEvent
 
-  case class CustomEvent(
-    name: String,
-    data: ujson.Value,
-    timestamp: Instant = Instant.now()
-  ) extends TraceEvent {
-    def eventType: String = "custom_event"
-    def toJson: ujson.Value = ujson.Obj(
-      "event_type" -> eventType,
-      "timestamp"  -> timestamp.toString,
-      "name"       -> name,
-      "data"       -> data
+/**
+ * Event for recording tool calls.
+ */
+case class ToolCallEvent(
+  id: String,
+  timestamp: Instant,
+  traceId: String,
+  spanId: Option[String],
+  name: String,
+  startTime: Instant,
+  endTime: Option[Instant] = None,
+  toolName: String,
+  input: Option[Any] = None,
+  output: Option[Any] = None,
+  metadata: Map[String, Any] = Map.empty
+) extends TraceEvent
+
+/**
+ * Event for recording scores/evaluations.
+ */
+case class ScoreEvent(
+  id: String,
+  timestamp: Instant,
+  traceId: String,
+  observationId: Option[String] = None,
+  name: String,
+  value: Double,
+  source: String = "annotation",
+  comment: Option[String] = None,
+  metadata: Map[String, Any] = Map.empty
+) extends TraceEvent
+
+/**
+ * Represents token usage information.
+ */
+case class TokenUsage(
+  promptTokens: Int,
+  completionTokens: Int,
+  totalTokens: Int,
+  unit: Option[String] = None,
+  inputCost: Option[Double] = None,
+  outputCost: Option[Double] = None,
+  totalCost: Option[Double] = None
+)
+
+/**
+ * Factory for creating trace events with common fields.
+ */
+object TraceEventFactory {
+
+  /**
+   * Create a trace create event.
+   */
+  def createTraceCreateEvent(
+    trace: BaseTrace,
+    eventId: String,
+    timestamp: Instant
+  ): TraceCreateEvent =
+    TraceCreateEvent(
+      id = eventId,
+      timestamp = timestamp,
+      traceId = trace.traceId,
+      name = trace.name,
+      userId = trace.userId,
+      sessionId = trace.sessionId,
+      metadata = trace.getMetadata,
+      tags = trace.getTags,
+      input = trace.getInput
     )
-  }
+
+  /**
+   * Create a trace update event.
+   */
+  def createTraceUpdateEvent(
+    trace: BaseTrace,
+    eventId: String,
+    timestamp: Instant
+  ): TraceUpdateEvent =
+    TraceUpdateEvent(
+      id = eventId,
+      timestamp = timestamp,
+      traceId = trace.traceId,
+      metadata = trace.getMetadata,
+      tags = trace.getTags,
+      output = trace.getOutput,
+      status = Some(trace.getStatus),
+      error = trace.getError
+    )
+
+  /**
+   * Create a span create event.
+   */
+  def createSpanCreateEvent(
+    span: BaseSpan,
+    eventId: String,
+    timestamp: Instant
+  ): SpanCreateEvent =
+    SpanCreateEvent(
+      id = eventId,
+      timestamp = timestamp,
+      traceId = span.traceId,
+      spanId = span.spanId,
+      parentSpanId = span.parentSpanId,
+      name = span.name,
+      startTime = span.startTime,
+      metadata = span.getMetadata,
+      tags = span.getTags,
+      input = span.getInput
+    )
+
+  /**
+   * Create a span update event.
+   */
+  def createSpanUpdateEvent(
+    span: BaseSpan,
+    eventId: String,
+    timestamp: Instant
+  ): SpanUpdateEvent =
+    SpanUpdateEvent(
+      id = eventId,
+      timestamp = timestamp,
+      traceId = span.traceId,
+      spanId = span.spanId,
+      endTime = span.endTime,
+      metadata = span.getMetadata,
+      tags = span.getTags,
+      input = span.getInput,
+      output = span.getOutput,
+      status = Some(span.status),
+      error = span.getError
+    )
 }

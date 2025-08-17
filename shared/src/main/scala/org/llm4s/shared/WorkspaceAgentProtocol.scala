@@ -326,6 +326,10 @@ object WebSocketMessage {
     macroRW[StreamingOutputMessage],
     macroRW[CommandStartedMessage],
     macroRW[CommandCompletedMessage],
+    macroRW[ToolCallMessage],
+    macroRW[ToolResultMessage],
+    macroRW[ToolListMessage],
+    macroRW[ToolListResponseMessage],
     macroRW[ErrorMessage]
   )
 }
@@ -394,6 +398,54 @@ case class CommandCompletedMessage(
 
 object CommandCompletedMessage {
   implicit val rw: ReadWriter[CommandCompletedMessage] = macroRW
+}
+
+// Tool call messages
+case class ToolCallMessage(
+  commandId: String,
+  toolName: String,
+  arguments: ujson.Value
+) extends WebSocketMessage
+
+object ToolCallMessage {
+  implicit val rw: ReadWriter[ToolCallMessage] = macroRW
+}
+
+case class ToolResultMessage(
+  commandId: String,
+  result: ujson.Value,
+  success: Boolean = true
+) extends WebSocketMessage
+
+object ToolResultMessage {
+  implicit val rw: ReadWriter[ToolResultMessage] = macroRW
+}
+
+case class ToolListMessage(
+  commandId: String
+) extends WebSocketMessage
+
+object ToolListMessage {
+  implicit val rw: ReadWriter[ToolListMessage] = macroRW
+}
+
+case class ToolListResponseMessage(
+  commandId: String,
+  tools: List[ToolInfo]
+) extends WebSocketMessage
+
+object ToolListResponseMessage {
+  implicit val rw: ReadWriter[ToolListResponseMessage] = macroRW
+}
+
+case class ToolInfo(
+  name: String,
+  description: String,
+  schema: ujson.Value
+)
+
+object ToolInfo {
+  implicit val rw: ReadWriter[ToolInfo] = macroRW
 }
 
 // Generic error message
