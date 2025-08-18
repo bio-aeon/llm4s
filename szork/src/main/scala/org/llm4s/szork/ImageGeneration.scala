@@ -50,6 +50,15 @@ class ImageGeneration {
           )
           logger.info("Using OpenAI DALL-E 2 for image generation")
           (Some(imagegeneration.ImageGeneration.openAIClient(openAIKey, "dall-e-2")), "OpenAI DALL-E 2")
+          
+        case ImageProvider.LocalStableDiffusion =>
+          val baseUrl = EnvLoader.get("STABLE_DIFFUSION_URL")
+            .orElse(EnvLoader.get("SD_URL"))
+            .getOrElse("http://localhost:7860")
+          val apiKey = EnvLoader.get("STABLE_DIFFUSION_API_KEY")
+            .orElse(EnvLoader.get("SD_API_KEY"))
+          logger.info(s"Using Local Stable Diffusion for image generation at: $baseUrl")
+          (Some(imagegeneration.ImageGeneration.stableDiffusionClient(baseUrl, apiKey)), s"Local Stable Diffusion ($baseUrl)")
       }
     }
   }
