@@ -4,6 +4,24 @@ import org.llm4s.toolapi._
 import upickle.default._
 
 /**
+ * Type-safe enumeration for calculator operations
+ */
+enum CalculatorOperation(val value: String, val description: String, val requiresB: Boolean):
+  case Add      extends CalculatorOperation("add", "Addition", true)
+  case Subtract extends CalculatorOperation("subtract", "Subtraction", true)
+  case Multiply extends CalculatorOperation("multiply", "Multiplication", true)
+  case Divide   extends CalculatorOperation("divide", "Division", true)
+  case Power    extends CalculatorOperation("power", "Exponentiation", true)
+  case Sqrt     extends CalculatorOperation("sqrt", "Square root", false)
+
+object CalculatorOperation:
+  def fromString(value: String): Either[String, CalculatorOperation] =
+    values.find(_.value == value) match {
+      case Some(op) => Right(op)
+      case None     => Left(s"Unknown operation: $value. Valid operations: ${values.map(_.value).mkString(", ")}")
+    }
+
+/**
  * Simple calculator tool for demonstrating LLM4S agent capabilities
  */
 object CalculatorTool {
@@ -68,39 +86,44 @@ object CalculatorTool {
 
   // Helper function to calculate result without non-local returns
   private def calculateResult(operation: String, a: Double, b: Option[Double]): Either[String, (Double, String)] =
-    operation match {
-      case "add" =>
+    CalculatorOperation.fromString(operation).flatMap(op => calculateWithOperation(op, a, b))
+
+  private def calculateWithOperation(
+    op: CalculatorOperation,
+    a: Double,
+    b: Option[Double]
+  ): Either[String, (Double, String)] =
+    op match {
+      case CalculatorOperation.Add =>
         b match {
           case Some(numB) => Right((a + numB, s"$a + $numB"))
           case None       => Left("Second number 'b' is required for addition")
         }
-      case "subtract" =>
+      case CalculatorOperation.Subtract =>
         b match {
           case Some(numB) => Right((a - numB, s"$a - $numB"))
           case None       => Left("Second number 'b' is required for subtraction")
         }
-      case "multiply" =>
+      case CalculatorOperation.Multiply =>
         b match {
           case Some(numB) => Right((a * numB, s"$a × $numB"))
           case None       => Left("Second number 'b' is required for multiplication")
         }
-      case "divide" =>
+      case CalculatorOperation.Divide =>
         b match {
           case Some(numB) =>
             if (numB == 0) Left("Division by zero is not allowed")
             else Right((a / numB, s"$a ÷ $numB"))
           case None => Left("Second number 'b' is required for division")
         }
-      case "power" =>
+      case CalculatorOperation.Power =>
         b match {
           case Some(numB) => Right((math.pow(a, numB), s"$a^$numB"))
           case None       => Left("Second number 'b' is required for power operation")
         }
-      case "sqrt" =>
+      case CalculatorOperation.Sqrt =>
         if (a < 0) Left("Cannot calculate square root of negative number")
         else Right((math.sqrt(a), s"√$a"))
-      case _ =>
-        Left(s"Unknown operation: $operation")
     }
 
   // Build the calculator tool

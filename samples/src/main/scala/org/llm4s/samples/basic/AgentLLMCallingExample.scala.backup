@@ -155,31 +155,65 @@ object AgentLLMCallingExample {
    * Execute agent with real LLM4S tracing and step-by-step display
    */
   private def executeAgentWithRealTracing(agent: Agent, agentState: AgentState, tracing: EnhancedTracing, timer: BenchmarkUtil.Timer): AgentExecutionResult = {
-    var currentState = agentState
-    var steps = Vector.empty[String]
-    var toolsUsed = Vector.empty[String]
-    var processedToolMessages = 0
-    var finalResponse = ""
+    
+    case class ExecutionState(
+      agentState: AgentState,
+      steps: Vector[String],
+      toolsUsed: Vector[String],
+      processedToolMessages: Int,
+      finalResponse: String
+    )
     
     logger.info("🧠 Agent Reasoning Process:")
     
     // Trace initial agent state
-    TracingUtil.traceAgentStateUpdate(tracing, currentState)
+    TracingUtil.traceAgentStateUpdate(tracing, agentState)
     
-    // Real agent execution steps
-    val maxSteps = 10
-    var stepCount = 0
-    
-    while (currentState.status == AgentStatus.InProgress && stepCount < maxSteps) {
-      stepCount += 1
-      val stepTimer = timer.stepTimer()
+    // Use functional approach with recursion instead of mutable vars
+    def executeSteps(state: ExecutionState, stepCount: Int): ExecutionState = {
+      if (state.agentState.status != AgentStatus.InProgress || stepCount >= 10) {
+        return state
+      }
       
-      logger.info("{}. Running agent step...", stepCount)
+      val stepTimer = timer.stepTimer()
+      val currentStepCount = stepCount + 1
+      
+      logger.info("{}. Running agent step...", currentStepCount)
       
       // Run the actual agent step
-      agent.runStep(currentState) match {
-        case Right(newState) =>
-          currentState = newState
+      agent.runStep(state.agentState) match {
+        case Right(newAgentState) =>
+          val updatedState = processAgentStep(state.copy(agentState = newAgentState), tracing, stepTimer, currentStepCount)
+          executeSteps(updatedState, currentStepCount)
+        case Left(error) =>
+          handleAgentError(state, error, tracing, currentStepCount, stepTimer)
+      }
+    }
+    
+    val initialState = ExecutionState(
+      agentState = agentState,
+      steps = Vector.empty[String],
+      toolsUsed = Vector.empty[String],
+      processedToolMessages = 0,
+      finalResponse = ""
+    )
+    
+    val finalState = executeSteps(initialState, 0)
+    
+    // Generate final response
+    val finalResponse = if (finalState.agentState.status == AgentStatus.Complete) {
+      finalState.agentState.conversation.messages.lastOption.map(_.content).getOrElse("No final response generated")
+    } else {
+      s"Agent execution stopped with status: ${finalState.agentState.status}"
+    }
+    
+    logger.info("🎯 Final Response Generated Successfully!")
+    
+    AgentExecutionResult(finalState.steps, finalState.toolsUsed.distinct, finalResponse)
+  }
+  
+  private def processAgentStep(state: ExecutionState, tracing: EnhancedTracing, stepTimer: BenchmarkUtil.Timer, stepCount: Int): ExecutionState = {
+    val newAgentState = continueStepUntilComplete(state.agentState)
           
           // Continue running steps until the agent completes or fails
           while (currentState.status == AgentStatus.WaitingForTools || currentState.status == AgentStatus.InProgress) {
@@ -226,20 +260,20 @@ object AgentLLMCallingExample {
           // Trace the step completion
           TracingUtil.traceAgentStateUpdate(tracing, currentState)
           
-          // Check if tools were used - only AssistantMessage has toolCalls
-          val lastMessage = currentState.conversation.messages.lastOption
-          lastMessage.foreach { msg =>
-            msg match {
-              case assistantMsg: org.llm4s.llmconnect.model.AssistantMessage if assistantMsg.toolCalls.nonEmpty =>
-                logger.info("   🔧 Tool calls detected: {}", assistantMsg.toolCalls.map(_.name).mkString(", "))
-                toolsUsed = toolsUsed ++ assistantMsg.toolCalls.map(_.name)
-                
-                // Tool execution will be traced by the agent itself with real results
-              case _ => // Not an assistant message or no tool calls
-            }
-          }
+                     // Check if tools were used - only AssistantMessage has toolCalls
+           val lastMessage = currentState.conversation.messages.lastOption
+           lastMessage.foreach { msg =>
+             msg match {
+               case assistantMsg: org.llm4s.llmconnect.model.AssistantMessage if assistantMsg.toolCalls.nonEmpty =>
+                 logger.info("   🔧 Tool calls detected: {}", assistantMsg.toolCalls.map(_.name).mkString(", "))
+                 toolsUsed = toolsUsed ++ assistantMsg.toolCalls.map(_.name)
+                 
+                 // Tool execution will be traced by the agent itself with real results
+               case _ => // Not an assistant message or no tool calls
+             }
+           }
           
-          steps = steps :+ s"Step $stepCount: ${currentState.status}"
+          steps = steps :+ s"Step ${stepCount}: ${currentState.status}"
           
          case Left(error) =>
            logger.error("   ❌ Step failed: {}", error.message)
@@ -248,17 +282,17 @@ object AgentLLMCallingExample {
            TracingUtil.traceAgentStepError(tracing, stepCount, error.message)
            
            currentState = currentState.withStatus(AgentStatus.Failed(error.message))
-           steps = steps :+ s"Step $stepCount: Failed - ${error.message}"
+           steps = steps :+ s"Step ${stepCount}: Failed - ${error.message}"
       }
       
       val stepDuration = stepTimer.elapsedMs
       logger.info("   ⏱️  Step completed in {}ms", stepDuration)
       
-      // If agent is complete, break out of the loop
-      if (currentState.status == AgentStatus.Complete) {
-        logger.info("   🎯 Agent completed successfully!")
-        stepCount = maxSteps // Force loop to end
-      }
+             // If agent is complete, break out of the loop
+       if (currentState.status == AgentStatus.Complete) {
+         logger.info("   🎯 Agent completed successfully!")
+         stepCount = maxSteps // Force loop to end
+       }
     }
     
     // Generate final response based on actual agent state
@@ -272,6 +306,8 @@ object AgentLLMCallingExample {
     
     AgentExecutionResult(steps, toolsUsed.distinct, finalResponse)
   }
+  
+
   
   /**
    * Case class to hold agent execution results
