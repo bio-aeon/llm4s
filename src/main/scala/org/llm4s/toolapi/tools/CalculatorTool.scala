@@ -6,20 +6,52 @@ import upickle.default._
 /**
  * Type-safe enumeration for calculator operations
  */
-enum CalculatorOperation(val value: String, val description: String, val requiresB: Boolean):
-  case Add      extends CalculatorOperation("add", "Addition", true)
-  case Subtract extends CalculatorOperation("subtract", "Subtraction", true)
-  case Multiply extends CalculatorOperation("multiply", "Multiplication", true)
-  case Divide   extends CalculatorOperation("divide", "Division", true)
-  case Power    extends CalculatorOperation("power", "Exponentiation", true)
-  case Sqrt     extends CalculatorOperation("sqrt", "Square root", false)
+sealed trait CalculatorOperation {
+  def value: String
+  def description: String
+  def requiresB: Boolean
+}
 
-object CalculatorOperation:
+object CalculatorOperation {
+  case object Add extends CalculatorOperation {
+    val value       = "add"
+    val description = "Addition"
+    val requiresB   = true
+  }
+  case object Subtract extends CalculatorOperation {
+    val value       = "subtract"
+    val description = "Subtraction"
+    val requiresB   = true
+  }
+  case object Multiply extends CalculatorOperation {
+    val value       = "multiply"
+    val description = "Multiplication"
+    val requiresB   = true
+  }
+  case object Divide extends CalculatorOperation {
+    val value       = "divide"
+    val description = "Division"
+    val requiresB   = true
+  }
+  case object Power extends CalculatorOperation {
+    val value       = "power"
+    val description = "Exponentiation"
+    val requiresB   = true
+  }
+  case object Sqrt extends CalculatorOperation {
+    val value       = "sqrt"
+    val description = "Square root"
+    val requiresB   = false
+  }
+
+  val values: List[CalculatorOperation] = List(Add, Subtract, Multiply, Divide, Power, Sqrt)
+
   def fromString(value: String): Either[String, CalculatorOperation] =
     values.find(_.value == value) match {
       case Some(op) => Right(op)
       case None     => Left(s"Unknown operation: $value. Valid operations: ${values.map(_.value).mkString(", ")}")
     }
+}
 
 /**
  * Simple calculator tool for demonstrating LLM4S agent capabilities
