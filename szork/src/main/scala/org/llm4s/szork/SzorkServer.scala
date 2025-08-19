@@ -782,8 +782,8 @@ object SzorkServer extends cask.Main with cask.Routes {
   // Initialize music generation if configured
   // private val musicGen = MusicGeneration() // Commented out - not currently used
 
-  override def port: Int = config.serverPort
-  override def host: String = config.serverHost
+  override def port: Int = config.port
+  override def host: String = config.host
 
   logger.info(s"Starting Szork Server on http://$host:$port")
 

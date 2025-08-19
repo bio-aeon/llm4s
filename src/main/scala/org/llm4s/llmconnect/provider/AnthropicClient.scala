@@ -9,7 +9,7 @@ import org.llm4s.llmconnect.model._
 import org.llm4s.llmconnect.streaming._
 import org.llm4s.toolapi.{ ObjectSchema, ToolFunction }
 import org.llm4s.types.Result
-import org.llm4s.error.{ LLMError, AuthenticationError, RateLimitError, ServiceError, ValidationError }
+import org.llm4s.error.{ LLMError, AuthenticationError, RateLimitError, ValidationError }
 import org.slf4j.LoggerFactory
 
 import java.lang
