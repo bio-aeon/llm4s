@@ -48,49 +48,65 @@
               </v-col>
               <v-col cols="auto">
                 <div class="audio-controls">
-                  <v-btn
-                    @click="backToSelection"
-                    color="warning"
-                    variant="outlined"
-                    icon
-                    size="small"
-                    title="Back to Adventure Selection"
-                    class="mr-2"
-                  >
-                    <v-icon>mdi-arrow-left</v-icon>
-                  </v-btn>
-                  <v-btn
-                    @click="imageGenerationEnabled = !imageGenerationEnabled"
-                    :color="imageGenerationEnabled ? 'info' : 'grey'"
-                    :variant="imageGenerationEnabled ? 'flat' : 'outlined'"
-                    icon
-                    size="small"
-                    :title="imageGenerationEnabled ? 'Image Generation Enabled' : 'Image Generation Disabled'"
-                    class="mr-2"
-                  >
-                    <v-icon>{{ imageGenerationEnabled ? 'mdi-image' : 'mdi-image-off' }}</v-icon>
-                  </v-btn>
-                  <v-btn
-                    @click="backgroundMusicEnabled = !backgroundMusicEnabled"
-                    :color="backgroundMusicEnabled ? 'primary' : 'grey'"
-                    :variant="backgroundMusicEnabled ? 'flat' : 'outlined'"
-                    icon
-                    size="small"
-                    :title="backgroundMusicEnabled ? 'Background Music Enabled' : 'Background Music Disabled'"
-                    class="mr-2"
-                  >
-                    <v-icon>{{ backgroundMusicEnabled ? 'mdi-music' : 'mdi-music-off' }}</v-icon>
-                  </v-btn>
-                  <v-btn
-                    @click="narrationEnabled = !narrationEnabled"
-                    :color="narrationEnabled ? 'success' : 'grey'"
-                    :variant="narrationEnabled ? 'flat' : 'outlined'"
-                    icon
-                    size="small"
-                    :title="narrationEnabled ? 'Narration Enabled' : 'Narration Disabled'"
-                  >
-                    <v-icon>{{ narrationEnabled ? 'mdi-account-voice' : 'mdi-account-voice-off' }}</v-icon>
-                  </v-btn>
+                  <v-tooltip text="Back to Adventure Selection" location="bottom">
+                    <template v-slot:activator="{ props }">
+                      <v-btn
+                        v-bind="props"
+                        @click="backToSelection"
+                        color="warning"
+                        variant="outlined"
+                        icon
+                        size="small"
+                        class="mr-2"
+                      >
+                        <v-icon>mdi-arrow-left</v-icon>
+                      </v-btn>
+                    </template>
+                  </v-tooltip>
+                  <v-tooltip :text="imageGenerationEnabled ? 'Disable image generation' : 'Enable image generation'" location="bottom">
+                    <template v-slot:activator="{ props }">
+                      <v-btn
+                        v-bind="props"
+                        @click="imageGenerationEnabled = !imageGenerationEnabled"
+                        :color="imageGenerationEnabled ? 'info' : 'grey'"
+                        :variant="imageGenerationEnabled ? 'flat' : 'outlined'"
+                        icon
+                        size="small"
+                        class="mr-2"
+                      >
+                        <v-icon>{{ imageGenerationEnabled ? 'mdi-image' : 'mdi-image-off' }}</v-icon>
+                      </v-btn>
+                    </template>
+                  </v-tooltip>
+                  <v-tooltip :text="backgroundMusicEnabled ? 'Disable background music' : 'Enable background music'" location="bottom">
+                    <template v-slot:activator="{ props }">
+                      <v-btn
+                        v-bind="props"
+                        @click="backgroundMusicEnabled = !backgroundMusicEnabled"
+                        :color="backgroundMusicEnabled ? 'primary' : 'grey'"
+                        :variant="backgroundMusicEnabled ? 'flat' : 'outlined'"
+                        icon
+                        size="small"
+                        class="mr-2"
+                      >
+                        <v-icon>{{ backgroundMusicEnabled ? 'mdi-music' : 'mdi-music-off' }}</v-icon>
+                      </v-btn>
+                    </template>
+                  </v-tooltip>
+                  <v-tooltip :text="narrationEnabled ? 'Disable voice narration' : 'Enable voice narration'" location="bottom">
+                    <template v-slot:activator="{ props }">
+                      <v-btn
+                        v-bind="props"
+                        @click="narrationEnabled = !narrationEnabled"
+                        :color="narrationEnabled ? 'success' : 'grey'"
+                        :variant="narrationEnabled ? 'flat' : 'outlined'"
+                        icon
+                        size="small"
+                      >
+                        <v-icon>{{ narrationEnabled ? 'mdi-account-voice' : 'mdi-account-voice-off' }}</v-icon>
+                      </v-btn>
+                    </template>
+                  </v-tooltip>
                 </div>
               </v-col>
             </v-row>
@@ -155,27 +171,37 @@
               autofocus
             >
               <template v-slot:append-inner>
-                <button
-                  @mousedown.prevent="startRecording"
-                  @mouseup.prevent="stopRecording"
-                  @mouseleave.prevent="stopRecording"
-                  @touchstart.prevent="startRecording"
-                  @touchend.prevent="stopRecording"
-                  @touchcancel.prevent="stopRecording"
-                  :disabled="loading"
-                  class="audio-record-btn mr-1"
-                  :class="{ recording: recording }"
-                >
-                  <v-icon>mdi-microphone</v-icon>
-                </button>
-                <v-btn
-                  @click="sendCommand"
-                  color="primary"
-                  variant="text"
-                  icon="mdi-send"
-                  :disabled="!userInput.trim() || loading"
-                  :loading="loading"
-                ></v-btn>
+                <v-tooltip text="Hold to capture speech" location="top">
+                  <template v-slot:activator="{ props }">
+                    <button
+                      v-bind="props"
+                      @mousedown.prevent="startRecording"
+                      @mouseup.prevent="stopRecording"
+                      @mouseleave.prevent="stopRecording"
+                      @touchstart.prevent="startRecording"
+                      @touchend.prevent="stopRecording"
+                      @touchcancel.prevent="stopRecording"
+                      :disabled="loading"
+                      class="audio-record-btn mr-1"
+                      :class="{ recording: recording }"
+                    >
+                      <v-icon>mdi-microphone</v-icon>
+                    </button>
+                  </template>
+                </v-tooltip>
+                <v-tooltip text="Submit text command" location="top">
+                  <template v-slot:activator="{ props }">
+                    <v-btn
+                      v-bind="props"
+                      @click="sendCommand"
+                      color="primary"
+                      variant="text"
+                      icon="mdi-send"
+                      :disabled="!userInput.trim() || loading"
+                      :loading="loading"
+                    ></v-btn>
+                  </template>
+                </v-tooltip>
               </template>
             </v-text-field>
           </div>

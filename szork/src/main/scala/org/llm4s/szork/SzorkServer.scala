@@ -238,7 +238,7 @@ object SzorkServer extends cask.Main with cask.Routes {
   def startGame(request: Request) = {
     logger.info("Starting new game session")
     val sessionId = java.util.UUID.randomUUID().toString
-    val gameId = java.util.UUID.randomUUID().toString  // Unique game ID for persistence
+    val gameId = java.util.UUID.randomUUID().toString.take(8)  // Use first 8 chars of UUID for shorter game IDs
     
     // Parse theme and art style from request
     val json = ujson.read(request.text())
