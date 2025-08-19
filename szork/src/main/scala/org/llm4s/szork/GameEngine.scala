@@ -219,6 +219,9 @@ class GameEngine(sessionId: String = "", theme: Option[String] = None, artStyle:
       .withStatus(AgentStatus.InProgress)
     
     // Run the agent
+    val textStartTime = System.currentTimeMillis()
+    logger.info(s"[$sessionId] Starting text generation for command: $command")
+    
     agent.run(currentState) match {
       case Right(newState) =>
         // Get only the new messages added by the agent
@@ -229,6 +232,9 @@ class GameEngine(sessionId: String = "", theme: Option[String] = None, artStyle:
         logger.debug(s"Agent added ${newMessages.length} messages, $assistantMessageCount are assistant messages")
         
         currentState = newState
+        
+        val textGenerationTime = System.currentTimeMillis() - textStartTime
+        logger.info(s"[$sessionId] Text generation completed in ${textGenerationTime}ms (${response.length} chars)")
         
         // Try to parse the response as structured JSON
         val (responseText, sceneOpt) = parseResponseData(response) match {
@@ -253,12 +259,12 @@ class GameEngine(sessionId: String = "", theme: Option[String] = None, artStyle:
         // Generate audio if requested
         val audioBase64 = if (generateAudio && responseText.nonEmpty) {
           val audioStartTime = System.currentTimeMillis()
-          logger.info(s"[$sessionId] Generating audio (${responseText.length} chars)")
+          logger.info(s"[$sessionId] Starting audio generation (${responseText.length} chars)")
           val tts = TextToSpeech()
           tts.synthesizeToBase64(responseText, TextToSpeech.VOICE_NOVA) match {
             case Right(audio) => 
               val audioTime = System.currentTimeMillis() - audioStartTime
-              logger.info(s"[$sessionId] Audio generated in ${audioTime}ms, base64: ${audio.length}")
+              logger.info(s"[$sessionId] Audio generation completed in ${audioTime}ms (${audio.length} bytes base64)")
               Some(audio)
             case Left(error) => 
               logger.error(s"[$sessionId] Failed to generate audio: $error")

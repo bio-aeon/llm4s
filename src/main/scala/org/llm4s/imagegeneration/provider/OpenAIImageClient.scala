@@ -161,6 +161,7 @@ class OpenAIImageClient(config: OpenAIConfig) extends ImageGenerationClient {
   private def sizeToApiFormat(size: ImageSize): String =
     // Map our generic sizes to DALL-E supported sizes
     size match {
+      case ImageSize.Square256        => if (config.model == "dall-e-3") "1024x1024" else "256x256"
       case ImageSize.Square512        => if (config.model == "dall-e-3") "1024x1024" else "512x512"
       case ImageSize.Square1024       => "1024x1024"
       case ImageSize.Landscape768x512 => if (config.model == "dall-e-3") "1792x1024" else "512x512"

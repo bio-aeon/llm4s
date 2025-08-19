@@ -30,6 +30,10 @@ sealed trait ImageSize {
 }
 
 object ImageSize {
+  case object Square256 extends ImageSize {
+    val width  = 256
+    val height = 256
+  }
   case object Square512 extends ImageSize {
     val width  = 512
     val height = 512

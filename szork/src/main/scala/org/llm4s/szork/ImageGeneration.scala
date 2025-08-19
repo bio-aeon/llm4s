@@ -79,7 +79,7 @@ class ImageGeneration {
           case (Some(gId), Some(lId)) =>
             MediaCache.getCachedImage(gId, lId, prompt, style) match {
               case Some(cachedImage) =>
-                logger.info(s"Using cached image for game=$gId, location=$lId")
+                logger.info(s"Using cached image for game=$gId, location=$lId (0ms - from cache)")
                 return Right(cachedImage)
               case None =>
                 logger.info(s"No cached image found for game=$gId, location=$lId - generating new image")
@@ -88,7 +88,8 @@ class ImageGeneration {
             logger.info(s"No cache info provided - generating image directly")
         }
         
-        logger.info(s"Generating image using $providerName for prompt: ${prompt.take(100)}...")
+        val imageStartTime = System.currentTimeMillis()
+        logger.info(s"Starting image generation using $providerName for prompt: ${prompt.take(100)}...")
         
         // Use prompt as-is if no additional style specified
         val fullPrompt = if (style.isEmpty) {
@@ -99,7 +100,7 @@ class ImageGeneration {
         
         // Configure options for image generation
         val options = ImageGenerationOptions(
-          size = ImageSize.Square512,  // 512x512 works for both HuggingFace and DALL-E
+          size = ImageSize.Square256,  // 256x256 for faster generation and smaller files
           format = ImageFormat.PNG
         )
         
@@ -107,7 +108,8 @@ class ImageGeneration {
         imageClient.generateImage(fullPrompt, options) match {
           case Right(generatedImage) =>
             val base64Image = generatedImage.data
-            logger.info(s"Image generation successful, base64 length: ${base64Image.length}")
+            val imageGenerationTime = System.currentTimeMillis() - imageStartTime
+            logger.info(s"Image generation completed in ${imageGenerationTime}ms (${base64Image.length} bytes base64)")
             
             // Cache the generated image if gameId and locationId are provided
             (gameId, locationId) match {
@@ -121,8 +123,9 @@ class ImageGeneration {
             Right(base64Image)
             
           case Left(error) =>
+            val imageGenerationTime = System.currentTimeMillis() - imageStartTime
             val errorMessage = s"Image generation error: ${error.message}"
-            logger.error(errorMessage)
+            logger.error(s"$errorMessage (failed after ${imageGenerationTime}ms)")
             Left(errorMessage)
         }
     }

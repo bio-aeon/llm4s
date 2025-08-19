@@ -9,7 +9,7 @@ import java.io.ByteArrayOutputStream
 import java.net.URI
 
 class MusicGeneration {
-  private val logger = LoggerFactory.getLogger(getClass)
+  private val logger = LoggerFactory.getLogger("MusicGeneration")
   private val replicateApiKey = EnvLoader.get("REPLICATE_API_KEY").filter(key => 
     key.nonEmpty && !key.contains("YOUR_REPLICATE_API_KEY")
   )
@@ -138,7 +138,7 @@ class MusicGeneration {
       case (Some(gId), Some(lId)) =>
         MediaCache.getCachedMusic(gId, lId, prompt, mood.name) match {
           case Some(cachedMusic) =>
-            logger.info(s"Using cached music for game=$gId, location=$lId, mood=${mood.name}")
+            logger.info(s"Using cached music for game=$gId, location=$lId, mood=${mood.name} (0ms - from cache)")
             return Right(cachedMusic)
           case None =>
             logger.info(s"No cached music found for game=$gId, location=$lId, mood=${mood.name} - generating new music")
@@ -147,7 +147,8 @@ class MusicGeneration {
         logger.info(s"No cache info provided - generating music directly")
     }
     
-    logger.info(s"Generating music for mood: ${mood.name}, prompt: $prompt")
+    val musicStartTime = System.currentTimeMillis()
+    logger.info(s"Starting music generation for mood: ${mood.name}, prompt: ${prompt.take(100)}...")
     
     try {
       // Create prediction
@@ -185,6 +186,9 @@ class MusicGeneration {
         case Right(audioUrl) =>
           downloadAndEncodeAudio(audioUrl) match {
             case Right(base64Audio) =>
+              val musicGenerationTime = System.currentTimeMillis() - musicStartTime
+              logger.info(s"Music generation completed in ${musicGenerationTime}ms (${base64Audio.length} bytes base64)")
+              
               // Cache the generated music if gameId and locationId are provided
               (gameId, locationId) match {
                 case (Some(gId), Some(lId)) =>
@@ -195,15 +199,20 @@ class MusicGeneration {
               }
               Right(base64Audio)
             case Left(error) =>
+              val musicGenerationTime = System.currentTimeMillis() - musicStartTime
+              logger.error(s"Music download/encoding failed after ${musicGenerationTime}ms: $error")
               Left(error)
           }
         case Left(error) =>
+          val musicGenerationTime = System.currentTimeMillis() - musicStartTime
+          logger.error(s"Music generation failed after ${musicGenerationTime}ms: $error")
           Left(error)
       }
       
     } catch {
       case e: Exception =>
-        logger.error("Error during music generation", e)
+        val musicGenerationTime = System.currentTimeMillis() - musicStartTime
+        logger.error(s"Error during music generation after ${musicGenerationTime}ms", e)
         Left(s"Music generation error: ${e.getMessage}")
     }
   }
