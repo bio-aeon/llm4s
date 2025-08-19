@@ -289,6 +289,91 @@ class GameEngine(sessionId: String = "", theme: Option[String] = None, artStyle:
     }
   }
   
+  def processCommandStreaming(
+    command: String,
+    onTextChunk: String => Unit,
+    generateAudio: Boolean = true
+  ): Either[LLMError, GameResponse] = {
+    logger.debug(s"[$sessionId] Processing command with streaming: $command")
+    
+    // Track user command in conversation history
+    trackConversation("user", command)
+    
+    // Create streaming agent
+    val streamingAgent = new StreamingAgent(client)
+    val accumulatedText = new StringBuilder()
+    
+    // Add user message to conversation
+    currentState = currentState
+      .addMessage(UserMessage(content = command))
+      .withStatus(AgentStatus.InProgress)
+    
+    // Run the agent with streaming
+    val textStartTime = System.currentTimeMillis()
+    logger.info(s"[$sessionId] Starting streaming text generation for command: $command")
+    
+    streamingAgent.runStreaming(currentState, chunk => {
+      // Stream text chunks to frontend as they arrive
+      accumulatedText.append(chunk)
+      onTextChunk(chunk)
+    }) match {
+      case Right(newState) =>
+        currentState = newState
+        val responseText = accumulatedText.toString
+        
+        val textGenerationTime = System.currentTimeMillis() - textStartTime
+        logger.info(s"[$sessionId] Streaming text generation completed in ${textGenerationTime}ms (${responseText.length} chars)")
+        
+        // Try to parse the complete response as structured JSON
+        val (finalText, sceneOpt) = parseResponseData(responseText) match {
+          case Some(scene: GameScene) =>
+            // Full scene response - update current scene
+            currentScene = Some(scene)
+            visitedLocations += scene.locationId
+            logger.info(s"[$sessionId] Full scene response: ${scene.locationId} - ${scene.locationName}")
+            (scene.narrationText, Some(scene))
+            
+          case Some(simple: SimpleResponse) =>
+            // Simple response - keep current scene, just return the text
+            logger.info(s"[$sessionId] Simple response for action: ${simple.actionTaken}")
+            (simple.narrationText, currentScene)
+            
+          case None =>
+            // Fallback to raw text if parsing fails
+            logger.warn(s"[$sessionId] Could not parse structured response, using raw text")
+            (if (responseText.nonEmpty) responseText else "No response", currentScene)
+        }
+        
+        // Track assistant response in conversation history
+        trackConversation("assistant", finalText)
+        
+        // Generate audio if requested (not streamed, generated after text is complete)
+        val audioBase64 = if (generateAudio && finalText.nonEmpty) {
+          val audioStartTime = System.currentTimeMillis()
+          logger.info(s"[$sessionId] Starting audio generation (${finalText.length} chars)")
+          val tts = TextToSpeech()
+          tts.synthesizeToBase64(finalText, TextToSpeech.VOICE_NOVA) match {
+            case Right(audio) => 
+              val audioTime = System.currentTimeMillis() - audioStartTime
+              logger.info(s"[$sessionId] Audio generation completed in ${audioTime}ms")
+              Some(audio)
+            case Left(error) => 
+              logger.error(s"[$sessionId] Failed to generate audio: $error")
+              None
+          }
+        } else {
+          None
+        }
+        
+        // Return the complete response
+        Right(GameResponse(finalText, audioBase64, None, None, None, sceneOpt))
+        
+      case Left(error) =>
+        logger.error(s"[$sessionId] Error in streaming command: $error")
+        Left(error)
+    }
+  }
+  
   def getMessageCount: Int = currentState.conversation.messages.length
   
   def getState: AgentState = currentState

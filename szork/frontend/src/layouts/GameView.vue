@@ -138,6 +138,7 @@
                 </div>
                 <div class="message-text">
                   {{ message.text }}
+                  <span v-if="message.streaming" class="streaming-cursor">▊</span>
                   <div v-if="message.scene && message.scene.exits && message.scene.exits.length > 0" class="exits-info">
                     <strong>Exits:</strong> 
                     <span v-for="(exit, index) in message.scene.exits" :key="index">
@@ -162,7 +163,7 @@
           <div class="game-input-wrapper">
             <v-text-field
               v-model="userInput"
-              @keyup.enter="sendCommand"
+              @keyup.enter="sendCommandMain"
               placeholder="Enter your command..."
               variant="outlined"
               density="compact"
@@ -193,7 +194,7 @@
                   <template v-slot:activator="{ props }">
                     <v-btn
                       v-bind="props"
-                      @click="sendCommand"
+                      @click="sendCommandMain"
                       color="primary"
                       variant="text"
                       icon="mdi-send"
@@ -217,6 +218,7 @@ import { useRouter, useRoute } from "vue-router";
 import axios from "axios";
 import AdventureSetup from "@/components/AdventureSetup.vue";
 import GameSelection from "@/components/GameSelection.vue";
+import { StreamingService, type StreamingCallbacks } from "@/services/StreamingService";
 
 interface Exit {
   direction: string;
@@ -238,6 +240,7 @@ interface GameMessage {
   hasImage?: boolean;
   imageLoading?: boolean;
   scene?: Scene;
+  streaming?: boolean; // New field to indicate streaming message
 }
 
 export default defineComponent({
@@ -279,6 +282,8 @@ export default defineComponent({
     const currentMusicMood = ref<string | null>(null);
     const currentNarration = ref<HTMLAudioElement | null>(null);
     const imageGenerationEnabled = ref(true);
+    const streamingEnabled = ref(true); // New: Enable streaming by default
+    const streamingService = ref<StreamingService | null>(null);
     
     // Helper function for logging with timestamps
     const log = (message: string, ...args: any[]) => {
@@ -623,6 +628,110 @@ export default defineComponent({
       } finally {
         loading.value = false;
         await scrollToBottom();
+      }
+    };
+    
+    const sendCommandStreaming = async () => {
+      const command = userInput.value.trim();
+      if (!command || !sessionId.value) return;
+      
+      // Add user message
+      messages.value.push({
+        text: `> ${command}`,
+        type: "user",
+      });
+      
+      // Clear input
+      userInput.value = "";
+      
+      // Create placeholder for streaming message
+      const streamingMessage: GameMessage = {
+        text: "",
+        type: "game",
+        streaming: true // Mark as streaming
+      };
+      messages.value.push(streamingMessage);
+      const messageIdx = messages.value.length - 1;
+      
+      try {
+        loading.value = true;
+        await scrollToBottom();
+        
+        // Initialize streaming service if needed
+        if (!streamingService.value) {
+          streamingService.value = new StreamingService();
+        }
+        
+        // Start streaming
+        await streamingService.value.streamCommand(
+          sessionId.value,
+          command,
+          imageGenerationEnabled.value,
+          {
+            onChunk: (text: string) => {
+              // Append text to the streaming message
+              streamingMessage.text += text;
+              // Scroll to show new text
+              scrollToBottom();
+            },
+            onComplete: (data) => {
+              log(`[${sessionId.value}] Streaming complete:`, data);
+              
+              // Mark streaming as complete
+              streamingMessage.streaming = false;
+              streamingMessage.messageIndex = data.messageIndex;
+              streamingMessage.scene = data.scene;
+              
+              // Play audio narration if available
+              if (data.audio) {
+                log(`[${sessionId.value}] Audio narration available from streaming`);
+                playAudioNarration(data.audio);
+              }
+              
+              // Handle image generation
+              if (data.hasImage) {
+                log(`[${sessionId.value}] Image generation started`);
+                streamingMessage.hasImage = true;
+                streamingMessage.imageLoading = true;
+                pollForImage(sessionId.value!, data.messageIndex, messageIdx);
+              }
+              
+              // Handle music generation
+              if (data.hasMusic) {
+                log(`[${sessionId.value}] Background music generation started`);
+                pollForMusic(sessionId.value!, data.messageIndex);
+              }
+              
+              loading.value = false;
+              scrollToBottom();
+            },
+            onError: (error: string) => {
+              log(`[${sessionId.value}] Streaming error:`, error);
+              messages.value.push({
+                text: `Error: ${error}`,
+                type: "system",
+              });
+              loading.value = false;
+            }
+          }
+        );
+        
+      } catch (error) {
+        messages.value.push({
+          text: "Error with streaming. Please check your connection.",
+          type: "system",
+        });
+        log("Error in streaming command:", error);
+        loading.value = false;
+      }
+    };
+    
+    // Modify the main sendCommand to use streaming when enabled
+    const sendCommandMain = async () => {
+      if (streamingEnabled.value) {
+        await sendCommandStreaming();
+      } else {
+        await sendCommand();
       }
     };
 
@@ -1060,10 +1169,13 @@ export default defineComponent({
       userInput,
       gameOutput,
       sendCommand,
+      sendCommandMain,
+      sendCommandStreaming,
       loading,
       recording,
       startRecording,
       stopRecording,
+      streamingEnabled,
       narrationEnabled,
       narrationVolume,
       pollForImage,
@@ -1191,6 +1303,23 @@ export default defineComponent({
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+/* Streaming cursor animation */
+.streaming-cursor {
+  display: inline-block;
+  animation: blink 1s infinite;
+  color: #4caf50;
+  font-weight: bold;
+}
+
+@keyframes blink {
+  0%, 50% {
+    opacity: 1;
+  }
+  51%, 100% {
+    opacity: 0;
   }
 }
 

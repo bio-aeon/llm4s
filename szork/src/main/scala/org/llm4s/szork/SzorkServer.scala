@@ -403,6 +403,184 @@ object SzorkServer extends cask.Main with cask.Routes {
     }
   }
 
+  @post("/api/game/stream")
+  def streamCommand(request: Request): cask.model.Response.Raw = {
+    val json = ujson.read(request.text())
+    val sessionId = json("sessionId").str
+    val command = json("command").str
+    val imageGenerationEnabled = json.obj.get("imageGenerationEnabled").map(_.bool).getOrElse(true)
+    
+    logger.info(s"Starting streaming command for session $sessionId: $command")
+    
+    sessions.get(sessionId) match {
+      case Some(session) =>
+        // Update session's imageGenerationEnabled if provided
+        val updatedSession = imageGenerationEnabled match {
+          case enabled if enabled != session.imageGenerationEnabled =>
+            val newSession = session.copy(imageGenerationEnabled = enabled)
+            sessions(sessionId) = newSession
+            newSession
+          case _ => session
+        }
+        
+        // Create a queue for SSE events
+        val eventQueue = new java.util.concurrent.LinkedBlockingQueue[String]()
+        var streamingComplete = false
+        
+        // Start streaming in background
+        import scala.concurrent.Future
+        
+        Future {
+          try {
+            updatedSession.engine.processCommandStreaming(
+              command,
+              onTextChunk = chunk => {
+                // Send text chunk as SSE event
+                val eventData = ujson.Obj("text" -> chunk).render()
+                val event = s"event: chunk\ndata: $eventData\n\n"
+                eventQueue.offer(event)
+              }
+            ) match {
+              case Right(response) =>
+                // Send completion event with scene data and metadata
+                val completeData = ujson.Obj(
+                  "complete" -> true,
+                  "messageIndex" -> updatedSession.engine.getMessageCount,
+                  "hasImage" -> (updatedSession.imageGenerationEnabled && 
+                                 updatedSession.engine.shouldGenerateSceneImage(response.text)),
+                  "hasMusic" -> updatedSession.engine.shouldGenerateBackgroundMusic(response.text)
+                )
+                
+                // Add scene data if available
+                response.scene.foreach { scene =>
+                  completeData("scene") = ujson.Obj(
+                    "locationName" -> scene.locationName,
+                    "exits" -> scene.exits.map(exit => ujson.Obj(
+                      "direction" -> exit.direction,
+                      "description" -> ujson.Str(exit.description.getOrElse(""))
+                    )),
+                    "items" -> scene.items,
+                    "npcs" -> scene.npcs
+                  )
+                }
+                
+                // Add audio if available
+                response.audioBase64.foreach { audio =>
+                  completeData("audio") = audio
+                }
+                
+                val completeEvent = s"event: complete\ndata: ${completeData.render()}\n\n"
+                eventQueue.offer(completeEvent)
+                
+                // Handle async image generation
+                if (completeData("hasImage").bool) {
+                  val messageIdx = updatedSession.engine.getMessageCount - 1
+                  Future {
+                    logger.info(s"Starting async image generation for streaming session $sessionId, message $messageIdx")
+                    val imageOpt = updatedSession.engine.generateSceneImage(response.text, Some(updatedSession.gameId))
+                    updatedSession.pendingImages(messageIdx) = imageOpt
+                    logger.info(s"Async image generation completed for streaming session $sessionId, message $messageIdx")
+                  }(imageEC)
+                }
+                
+                // Handle async music generation
+                if (completeData("hasMusic").bool) {
+                  val messageIdx = updatedSession.engine.getMessageCount - 1
+                  Future {
+                    logger.info(s"Starting async music generation for streaming session $sessionId, message $messageIdx")
+                    val musicOpt = updatedSession.engine.generateBackgroundMusic(response.text, Some(updatedSession.gameId))
+                    updatedSession.pendingMusic(messageIdx) = musicOpt
+                    logger.info(s"Async music generation completed for streaming session $sessionId, message $messageIdx")
+                  }(imageEC)
+                }
+                
+                // Auto-save if enabled
+                if (updatedSession.autoSaveEnabled) {
+                  val gameState = updatedSession.engine.getGameState(updatedSession.gameId, updatedSession.theme, updatedSession.artStyle)
+                  GamePersistence.saveGame(gameState) match {
+                    case Right(_) =>
+                      logger.debug(s"Auto-saved game ${updatedSession.gameId} after streaming")
+                    case Left(error) =>
+                      logger.warn(s"Auto-save failed for game ${updatedSession.gameId}: $error")
+                  }
+                }
+                
+              case Left(error) =>
+                logger.error(s"Streaming command failed: $error")
+                val errorEvent = s"event: error\ndata: ${ujson.Obj("error" -> error.toString).render()}\n\n"
+                eventQueue.offer(errorEvent)
+            }
+          } catch {
+            case e: Exception =>
+              logger.error(s"Exception during streaming", e)
+              val errorEvent = s"event: error\ndata: ${ujson.Obj("error" -> e.getMessage).render()}\n\n"
+              eventQueue.offer(errorEvent)
+          } finally {
+            streamingComplete = true
+          }
+        }(imageEC)
+        
+        // Create an iterator that reads from the queue
+        val streamIterator = new Iterator[String] {
+          def hasNext: Boolean = !streamingComplete || !eventQueue.isEmpty
+          def next(): String = {
+            var event = eventQueue.poll()
+            while (event == null && !streamingComplete) {
+              Thread.sleep(10) // Small delay to avoid busy waiting
+              event = eventQueue.poll()
+            }
+            Option(event).getOrElse("")
+          }
+        }
+        
+        // Return SSE response using a streaming approach
+        cask.model.Response(
+          new java.io.InputStream {
+            private val buffer = new java.io.ByteArrayOutputStream()
+            private var currentBytes: Array[Byte] = Array.empty
+            private var position = 0
+            
+            override def read(): Int = {
+              if (position >= currentBytes.length) {
+                // Need to get more data
+                if (streamIterator.hasNext) {
+                  val event = streamIterator.next()
+                  if (event.nonEmpty) {
+                    currentBytes = event.getBytes("UTF-8")
+                    position = 0
+                  } else {
+                    return read() // Skip empty events
+                  }
+                } else {
+                  return -1 // End of stream
+                }
+              }
+              
+              val byte = currentBytes(position) & 0xFF
+              position += 1
+              byte
+            }
+          },
+          statusCode = 200,
+          headers = Seq(
+            "Content-Type" -> "text/event-stream",
+            "Cache-Control" -> "no-cache",
+            "Connection" -> "keep-alive",
+            "X-Accel-Buffering" -> "no" // Disable nginx buffering
+          )
+        )
+        
+      case None =>
+        logger.warn(s"Session not found for streaming: $sessionId")
+        val errorMessage = s"event: error\ndata: ${ujson.Obj("error" -> "Session not found").render()}\n\n"
+        cask.model.Response(
+          errorMessage,
+          statusCode = 404,
+          headers = Seq("Content-Type" -> "text/event-stream")
+        )
+    }
+  }
+  
   @post("/api/game/command")
   def processCommand(request: Request) = {
     val json = ujson.read(request.text())

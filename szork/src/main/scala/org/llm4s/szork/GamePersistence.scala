@@ -102,8 +102,8 @@ object GamePersistence {
         "adventureTitle" -> state.adventureTitle.map(ujson.Str(_)).getOrElse(ujson.Null)
       )
       
-      // Write to file
-      val jsonString = json.toString()
+      // Write to file with pretty formatting
+      val jsonString = ujson.write(json, indent = 2)
       Files.write(filePath, jsonString.getBytes(StandardCharsets.UTF_8))
       
       logger.info(s"Saved game ${state.gameId} to ${filePath.toString}")
