@@ -254,6 +254,19 @@ class GameEngine(sessionId: String = "", theme: Option[String] = None, artStyle:
         val newMessages = newState.conversation.messages.drop(previousMessageCount + 1) // +1 to skip the user message we just added
         val response = extractAssistantResponses(newMessages)
         
+        // TEMPORARY: Log complete LLM response to console for debugging
+        logger.info(s"[DEBUG] Complete LLM Response for user command: $command")
+        newMessages.foreach {
+          case AssistantMessage(content, toolCalls) =>
+            logger.info(s"[DEBUG] Assistant Message Content: $content")
+            logger.info(s"[DEBUG] Assistant Tool Calls: $toolCalls")
+          case ToolMessage(toolCallId, content) =>
+            logger.info(s"[DEBUG] Tool Message (ID: $toolCallId): $content")
+          case msg =>
+            logger.info(s"[DEBUG] Other Message Type: ${msg.getClass.getSimpleName}")
+        }
+        logger.info(s"[DEBUG] Extracted response text: $response")
+        
         val assistantMessageCount = newMessages.count(_.isInstanceOf[AssistantMessage])
         logger.debug(s"Agent added ${newMessages.length} messages, $assistantMessageCount are assistant messages")
         
@@ -372,6 +385,10 @@ class GameEngine(sessionId: String = "", theme: Option[String] = None, artStyle:
       case Right(newState) =>
         currentState = newState
         val responseText = accumulatedText.toString
+        
+        // TEMPORARY: Log complete LLM response to console for debugging
+        logger.info(s"[DEBUG] Complete Streaming LLM Response for user command: $command")
+        logger.info(s"[DEBUG] Full response text: $responseText")
         
         val textGenerationTime = System.currentTimeMillis() - textStartTime
         logger.info(s"[$sessionId] Streaming completed: $chunkCount chunks, $narrativeChunkCount narrative chunks, ${responseText.length} chars in ${textGenerationTime}ms")

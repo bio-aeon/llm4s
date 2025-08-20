@@ -35,6 +35,7 @@
     <AdventureSetup 
       v-else-if="setupStarted && !gameStarted"
       @adventure-ready="onAdventureReady"
+      @back-to-selection="goBackToSelection"
     />
     
     <!-- Game Screen -->
@@ -378,6 +379,12 @@ export default defineComponent({
       if (route.params.gameId) {
         router.push('/');
       }
+    };
+
+    const goBackToSelection = () => {
+      // Reset from AdventureSetup to GameSelection
+      setupStarted.value = false;
+      selectionStarted.value = true;
     };
 
     const beginSetup = () => {
@@ -843,6 +850,7 @@ export default defineComponent({
       startNewGame,
       loadSelectedGame,
       backToSelection,
+      goBackToSelection,
       beginSetup,
       onAdventureReady,
       backgroundMusicEnabled,

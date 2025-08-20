@@ -79,6 +79,12 @@ class StreamingAgent(client: LLMClient) extends Agent(client) {
       }
     }) match {
       case Right(completion) =>
+        // TEMPORARY: Log complete LLM response to console
+        logger.info(s"[DEBUG] Complete LLM Response for user command:")
+        logger.info(s"[DEBUG] Content: ${completion.message.content}")
+        logger.info(s"[DEBUG] Tool Calls: ${completion.message.toolCalls}")
+        logger.info(s"[DEBUG] Token Usage - Prompt: ${completion.usage.map(_.promptTokens)}, Completion: ${completion.usage.map(_.completionTokens)}, Total: ${completion.usage.map(_.totalTokens)}")
+        
         val logMessage = completion.message.toolCalls match {
           case Seq() => 
             s"[assistant] streaming text: ${completion.message.content.take(100)}"

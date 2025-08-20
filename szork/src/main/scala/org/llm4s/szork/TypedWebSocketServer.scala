@@ -19,7 +19,7 @@ class TypedWebSocketServer(
   sessionManager: SessionManager
 )(implicit ec: ExecutionContext) extends WebSocketServer(new InetSocketAddress(port)) {
   
-  private val logger = LoggerFactory.getLogger(this.getClass)
+  private val logger = LoggerFactory.getLogger("TypedWebSocketServer")
   
   // Map WebSocket connections to session IDs
   private val connectionSessions = TrieMap[WebSocket, String]()
@@ -43,7 +43,7 @@ class TypedWebSocketServer(
       // Parse the message and convert "type" field to the expected format
       val json = ujson.read(message)
       val clientMessage = parseClientMessage(json)
-      val sessionId = connectionSessions.get(conn).getOrElse("no-session")
+      val sessionId = connectionSessions.getOrElse(conn, "no-session")
       
       // Log received message with key details
       clientMessage match {
@@ -123,7 +123,7 @@ class TypedWebSocketServer(
   
   // Helper method to send typed messages with "type" field
   private def sendMessage(conn: WebSocket, message: ServerMessage): Unit = {
-    val sessionId = connectionSessions.get(conn).getOrElse("no-session")
+    val sessionId = connectionSessions.getOrElse(conn, "no-session")
     val baseJson = write[ServerMessage](message)
     val obj = ujson.read(baseJson).obj
     

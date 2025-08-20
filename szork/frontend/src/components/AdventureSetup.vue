@@ -74,6 +74,15 @@
           
           <div class="action-buttons-sticky">
             <v-btn
+              variant="outlined"
+              size="large"
+              @click="backToSelection"
+              class="mr-2"
+            >
+              <v-icon start>mdi-arrow-left</v-icon>
+              Back
+            </v-btn>
+            <v-btn
               size="large"
               :disabled="!canProceedFromTheme"
               @click="proceedToStyle"
@@ -163,7 +172,7 @@ interface ArtStyle {
 
 export default defineComponent({
   name: "AdventureSetup",
-  emits: ["adventure-ready"],
+  emits: ["adventure-ready", "back-to-selection"],
   setup(_, { emit }) {
     const currentStep = ref<"theme" | "style" | "generating">("theme");
     const selectedTheme = ref<string | null>(null);
@@ -331,6 +340,10 @@ export default defineComponent({
       currentStep.value = "theme";
     };
     
+    const backToSelection = () => {
+      emit("back-to-selection");
+    };
+    
     const generateAdventureOutline = async (themeData: any, styleData: any) => {
       try {
         // Update status messages during generation
@@ -436,6 +449,7 @@ export default defineComponent({
       validateCustomTheme,
       proceedToStyle,
       goBackToTheme,
+      backToSelection,
       startAdventure,
       adventureOutline,
       generationStatus,
