@@ -9,7 +9,6 @@ import scala.concurrent.Future
 import scala.concurrent.ExecutionContext
 import scala.collection.concurrent.TrieMap
 import upickle.default._
-import java.util.UUID
 import org.llm4s.szork.protocol._
 
 /**
@@ -195,8 +194,8 @@ class TypedWebSocketServer(
   private def handleNewGame(conn: WebSocket, request: NewGameRequest): Unit = {
     logger.info(s"Creating new game with theme: ${request.theme.getOrElse("default")}")
     
-    val sessionId = UUID.randomUUID().toString
-    val gameId = UUID.randomUUID().toString.take(8)
+    val sessionId = IdGenerator.sessionId()
+    val gameId = IdGenerator.gameId()
     val engine = new GameEngine(gameId)
     
     val themeObj = request.theme.map(t => GameTheme(t, t, t))
@@ -253,7 +252,7 @@ class TypedWebSocketServer(
     
     GamePersistence.loadGame(request.gameId) match {
       case Right(gameState) =>
-        val sessionId = UUID.randomUUID().toString
+        val sessionId = IdGenerator.sessionId()
         val engine = new GameEngine(request.gameId)
         
         // Restore game state

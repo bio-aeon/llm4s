@@ -330,7 +330,7 @@ object SzorkServer extends cask.Main with cask.Routes {
     GamePersistence.loadGame(gameId) match {
       case Right(gameState) =>
         // Create new session for loaded game
-        val sessionId = java.util.UUID.randomUUID().toString
+        val sessionId = IdGenerator.sessionId()
         val engine = GameEngine.create(sessionId, gameState.theme.map(_.prompt), gameState.artStyle.map(_.id), None)
         
         // Restore the game state
