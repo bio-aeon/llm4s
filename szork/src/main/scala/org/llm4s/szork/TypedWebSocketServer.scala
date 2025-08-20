@@ -192,14 +192,22 @@ class TypedWebSocketServer(
   
   // Handle new game creation
   private def handleNewGame(conn: WebSocket, request: NewGameRequest): Unit = {
-    logger.info(s"Creating new game with theme: ${request.theme.getOrElse("default")}")
+    logger.info(s"Creating new game with theme: ${request.theme.getOrElse("default")}, artStyle: ${request.artStyle.getOrElse("default")}")
     
     val sessionId = IdGenerator.sessionId()
     val gameId = IdGenerator.gameId()
-    val engine = new GameEngine(gameId)
+    logger.info(s"Generated IDs - Session: $sessionId, Game: $gameId")
     
     val themeObj = request.theme.map(t => GameTheme(t, t, t))
     val artStyleObj = request.artStyle.map(a => ArtStyle(a, a))
+    
+    // Create GameEngine with proper parameters
+    val engine = new GameEngine(
+      sessionId = sessionId,
+      theme = request.theme,
+      artStyle = request.artStyle,
+      adventureOutline = None  // TODO: Pass adventure outline if available from client
+    )
     
     val session = GameSession(
       id = sessionId,
@@ -212,36 +220,39 @@ class TypedWebSocketServer(
     
     sessionManager.createSession(session)
     connectionSessions(conn) = sessionId
+    logger.info(s"Session created and registered for connection")
     
-    // Initialize the game
-    val response = engine.processCommand("Start adventure")
-    
-    response match {
-      case Right(gameResponse) =>
-        val sceneData = gameResponse.scene.map(convertScene)
+    // Initialize the game first
+    logger.info(s"Initializing game engine...")
+    engine.initialize() match {
+      case Right(initialMessage) =>
+        logger.info(s"Game initialized successfully. Message length: ${initialMessage.length}")
+        val sceneData = engine.getCurrentScene.map(convertScene)
         
         val message = GameStartedMessage(
           sessionId = sessionId,
           gameId = gameId,
-          text = gameResponse.text,
+          text = initialMessage,
           messageIndex = engine.getMessageCount,
           scene = sceneData,
-          audio = gameResponse.audioBase64,
-          hasImage = request.imageGeneration && engine.shouldGenerateSceneImage(gameResponse.text),
-          hasMusic = engine.shouldGenerateBackgroundMusic(gameResponse.text)
+          audio = None,  // Audio generation can be handled separately if needed
+          hasImage = request.imageGeneration && engine.shouldGenerateSceneImage(initialMessage),
+          hasMusic = engine.shouldGenerateBackgroundMusic(initialMessage)
         )
         
+        logger.info(s"Sending GameStartedMessage - hasImage: ${message.hasImage}, hasMusic: ${message.hasMusic}")
         sendMessage(conn, message)
         
         // Generate image/music if needed
         if (message.hasImage) {
-          generateImageAsync(session, gameResponse.text, engine.getMessageCount - 1, conn)
+          generateImageAsync(session, initialMessage, engine.getMessageCount - 1, conn)
         }
         if (message.hasMusic) {
-          generateMusicAsync(session, gameResponse.text, engine.getMessageCount - 1, conn)
+          generateMusicAsync(session, initialMessage, engine.getMessageCount - 1, conn)
         }
         
       case Left(error) =>
+        logger.error(s"Failed to initialize game: $error")
         sendMessage(conn, ErrorMessage(s"Failed to start game: $error"))
     }
   }
