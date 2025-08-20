@@ -269,6 +269,8 @@ export default defineComponent({
       sendAudioCommand: wsSendAudioCommand,
       getSavedGames,
       setScrollCallback,
+      setPlayBackgroundMusicCallback,
+      setPlayAudioNarrationCallback,
       log: wsLog
     } = useWebSocketGame();
     
@@ -316,8 +318,8 @@ export default defineComponent({
           };
           
           // Add image if available
-          if (msg.imageUrl) {
-            gameMsg.image = msg.imageUrl.replace('data:image/png;base64,', '');
+          if (msg.image) {
+            gameMsg.image = msg.image;
           }
           
           return gameMsg;
@@ -781,6 +783,10 @@ export default defineComponent({
       setScrollCallback(() => {
         scrollToBottom();
       });
+      
+      // Set up audio playback callbacks
+      setPlayBackgroundMusicCallback(playBackgroundMusic);
+      setPlayAudioNarrationCallback(playAudioNarration);
       
       // Connect to WebSocket server
       try {

@@ -37,6 +37,10 @@ export function useWebSocketGame() {
   // Callback for auto-scrolling during streaming
   let scrollCallback: (() => void) | null = null;
   
+  // Callbacks for audio playback
+  let playBackgroundMusicCallback: ((musicBase64: string, mood: string) => void) | null = null;
+  let playAudioNarrationCallback: ((audioBase64: string) => void) | null = null;
+  
   // Helper function for logging game-specific events
   const log = (message: string, ...args: any[]) => {
     console.log(`[Game] ${message}`, ...args);
@@ -245,7 +249,9 @@ export function useWebSocketGame() {
       if (message) {
         message.backgroundMusic = data.music;
         message.musicMood = data.mood;
-        playBackgroundMusic(data.music, data.mood);
+        if (playBackgroundMusicCallback) {
+          playBackgroundMusicCallback(data.music, data.mood);
+        }
       }
     });
     
@@ -357,13 +363,17 @@ export function useWebSocketGame() {
     isConnected.value = false;
   };
   
-  // Audio playback functions (stubs - implement based on your audio setup)
+  // Audio playback functions (uses callbacks if provided)
   const playAudioNarration = (audioBase64: string) => {
-    // Implement audio playback
+    if (playAudioNarrationCallback) {
+      playAudioNarrationCallback(audioBase64);
+    }
   };
   
   const playBackgroundMusic = (musicBase64: string, mood: string) => {
-    // Implement background music playback
+    if (playBackgroundMusicCallback) {
+      playBackgroundMusicCallback(musicBase64, mood);
+    }
   };
   
   // Cleanup on unmount
@@ -376,6 +386,20 @@ export function useWebSocketGame() {
    */
   const setScrollCallback = (callback: () => void) => {
     scrollCallback = callback;
+  };
+  
+  /**
+   * Set callback for background music playback
+   */
+  const setPlayBackgroundMusicCallback = (callback: (musicBase64: string, mood: string) => void) => {
+    playBackgroundMusicCallback = callback;
+  };
+  
+  /**
+   * Set callback for audio narration playback
+   */
+  const setPlayAudioNarrationCallback = (callback: (audioBase64: string) => void) => {
+    playAudioNarrationCallback = callback;
   };
   
   return {
@@ -396,6 +420,8 @@ export function useWebSocketGame() {
     sendAudioCommand,
     getSavedGames,
     setScrollCallback,
+    setPlayBackgroundMusicCallback,
+    setPlayAudioNarrationCallback,
     
     // Expose log function
     log
