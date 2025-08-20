@@ -213,35 +213,29 @@
 </template>
 
 <script lang="ts">
-import { defineComponent, ref, nextTick, onMounted, onUnmounted, watch } from "vue";
+import { defineComponent, ref, nextTick, onMounted, onUnmounted, watch, computed } from "vue";
 import { useRouter, useRoute } from "vue-router";
-import axios from "axios";
 import AdventureSetup from "@/components/AdventureSetup.vue";
 import GameSelection from "@/components/GameSelection.vue";
-import { StreamingService, type StreamingCallbacks } from "@/services/StreamingService";
+import { useWebSocketGame } from "@/composables/useWebSocketGame";
 
-interface Exit {
-  direction: string;
-  description?: string;
-}
-
-interface Scene {
-  locationName: string;
-  exits: Exit[];
-  items?: string[];
-  npcs?: string[];
-}
-
-interface GameMessage {
+// Types are imported from the composable
+type GameMessage = {
   text: string;
   type: "user" | "game" | "system";
   image?: string | null;
   messageIndex?: number;
   hasImage?: boolean;
   imageLoading?: boolean;
-  scene?: Scene;
-  streaming?: boolean; // New field to indicate streaming message
-}
+  scene?: any;
+  streaming?: boolean;
+  isUser?: boolean;
+  timestamp?: Date;
+  imageUrl?: string;
+  backgroundMusic?: string;
+  musicMood?: string;
+  isStreaming?: boolean;
+};
 
 export default defineComponent({
   name: "GameView",
@@ -258,12 +252,30 @@ export default defineComponent({
   setup(props) {
     const router = useRouter();
     const route = useRoute();
-    const messages = ref<GameMessage[]>([]);
+    
+    // Use the WebSocket composable
+    const {
+      sessionId,
+      gameId: currentGameId,
+      messages: wsMessages,
+      isConnected,
+      isStreaming,
+      savedGames,
+      connect,
+      disconnect,
+      startNewGame: wsStartNewGame,
+      loadGame: wsLoadGame,
+      sendCommand: wsSendCommand,
+      sendAudioCommand: wsSendAudioCommand,
+      getSavedGames,
+      setScrollCallback,
+      log: wsLog
+    } = useWebSocketGame();
+    
+    // Local UI state
     const userInput = ref("");
     const gameOutput = ref<HTMLElement>();
-    const sessionId = ref<string | null>(null);
-    const currentGameId = ref<string | null>(props.gameId || route.params.gameId as string || null);
-    const loading = ref(false);
+    const loading = computed(() => isStreaming.value);
     const recording = ref(false);
     const mediaRecorder = ref<MediaRecorder | null>(null);
     const audioChunks = ref<Blob[]>([]);
@@ -282,14 +294,39 @@ export default defineComponent({
     const currentMusicMood = ref<string | null>(null);
     const currentNarration = ref<HTMLAudioElement | null>(null);
     const imageGenerationEnabled = ref(true);
-    const streamingEnabled = ref(true); // New: Enable streaming by default
-    const streamingService = ref<StreamingService | null>(null);
     
-    // Helper function for logging with timestamps
-    const log = (message: string, ...args: any[]) => {
-      const timestamp = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3 });
-      console.log(`[${timestamp}] ${message}`, ...args);
-    };
+    // Map WebSocket messages to the expected format for the UI
+    const messages = computed(() => {
+      return wsMessages.value.map((msg): GameMessage => {
+        if (msg.isUser) {
+          return {
+            text: `> ${msg.text}`,
+            type: "user",
+            streaming: false
+          };
+        } else {
+          const gameMsg: GameMessage = {
+            text: msg.text,
+            type: "game",
+            messageIndex: msg.messageIndex,
+            scene: msg.scene,
+            hasImage: msg.hasImage,
+            imageLoading: msg.imageLoading,
+            streaming: msg.isStreaming || false
+          };
+          
+          // Add image if available
+          if (msg.imageUrl) {
+            gameMsg.image = msg.imageUrl.replace('data:image/png;base64,', '');
+          }
+          
+          return gameMsg;
+        }
+      });
+    });
+    
+    // Use the log function from the composable
+    const log = wsLog;
 
     const scrollToBottom = async () => {
       await nextTick();
@@ -307,9 +344,9 @@ export default defineComponent({
       setupStarted.value = true;
     };
     
-    const loadSelectedGame = (gameId: string) => {
+    const loadSelectedGame = async (gameId: string) => {
       selectionStarted.value = false;
-      loadGame(gameId);
+      await loadGame(gameId);
     };
     
     const backToSelection = () => {
@@ -332,7 +369,7 @@ export default defineComponent({
       selectionStarted.value = true;
       sessionId.value = null;
       currentGameId.value = null;
-      messages.value = [];
+      messages.value.length = 0; // Clear messages array without reassigning
       adventureTitle.value = "Generative Adventuring";
       
       // Clear the game ID from the URL if present
@@ -362,7 +399,6 @@ export default defineComponent({
 
     const loadGame = async (gameId: string) => {
       try {
-        loading.value = true;
         log(`Loading game: ${gameId}`);
         
         // Clean up any existing audio when loading a new game
@@ -373,88 +409,26 @@ export default defineComponent({
           currentMusicMood.value = null;
         }
         
-        const response = await axios.get(`/api/game/load/${gameId}`);
+        // Load game via WebSocket
+        await wsLoadGame(gameId);
         
-        if (response.data.status === "success") {
-          sessionId.value = response.data.sessionId;
-          currentGameId.value = response.data.gameId;
-          
-          // Restore adventure title if available
-          if (response.data.adventureTitle) {
-            adventureTitle.value = response.data.adventureTitle;
-          } else if (response.data.outline && response.data.outline.title) {
-            adventureTitle.value = response.data.outline.title;
-          }
-          
-          // Clear existing messages
-          messages.value = [];
-          
-          // Restore conversation history
-          if (response.data.conversationHistory && response.data.conversationHistory.length > 0) {
-            response.data.conversationHistory.forEach((entry: any, index: number) => {
-              const isLastAssistantMessage = 
-                entry.role === "assistant" && 
-                index === response.data.conversationHistory.length - 1;
-              
-              const message: GameMessage = {
-                text: entry.content,
-                type: entry.role === "user" ? "user" : "game",
-                messageIndex: messages.value.length,
-                // Add scene info to the last assistant message
-                scene: isLastAssistantMessage && response.data.scene ? response.data.scene : undefined,
-                hasImage: false,
-                imageLoading: false,
-                // Add cached image if available for last message
-                image: isLastAssistantMessage && response.data.scene?.cachedImage ? 
-                  response.data.scene.cachedImage : undefined
-              };
-              
-              // If we have a cached image, mark it as having an image
-              if (message.image) {
-                message.hasImage = true;
-                message.imageLoading = false;
-                log(`Loaded cached image for location: ${response.data.scene?.locationId}`);
-              }
-              
-              messages.value.push(message);
-            });
-            log(`Restored ${response.data.conversationHistory.length} conversation entries`);
-          }
-          
-          // Show current scene info
-          if (response.data.scene) {
-            const scene = response.data.scene;
-            log(`Loaded game at scene: ${scene.locationName} with ${scene.exits?.length || 0} exits`);
-          }
-          
-          gameStarted.value = true;
-          loading.value = false;
-          
-          // Scroll to bottom after loading
-          await nextTick();
-          await scrollToBottom();
-          
-          // Update URL if not already there
-          if (!route.params.gameId || route.params.gameId !== gameId) {
-            router.push(`/game/${gameId}`);
-          }
-        } else {
-          log(`Failed to load game: ${response.data.error}`);
-          // Show error message and redirect to home
-          alert(`Unable to load saved game: ${response.data.error}\n\nYou will be redirected to the main screen.`);
-          loading.value = false;
-          // Reset to initial state
-          gameStarted.value = false;
-          setupStarted.value = false;
-          selectionStarted.value = false;
-          // Clear the game ID from the URL
-          router.push('/');
+        // WebSocket will handle loading the game
+        // The gameLoaded event will update messages and state
+        gameStarted.value = true;
+        
+        // Update URL if not already there
+        if (!route.params.gameId || route.params.gameId !== gameId) {
+          router.push(`/game/${gameId}`);
         }
+        
+        // Scroll to bottom after loading
+        await nextTick();
+        await scrollToBottom();
+        
       } catch (error) {
         log("Error loading game:", error);
         // Show error message and redirect to home
         alert(`Unable to load saved game.\n\nThe game may have been deleted or corrupted.\n\nYou will be redirected to the main screen.`);
-        loading.value = false;
         // Reset to initial state
         gameStarted.value = false;
         setupStarted.value = false;
@@ -466,7 +440,6 @@ export default defineComponent({
     
     const startGame = async () => {
       try {
-        loading.value = true;
         log("Starting game with theme:", adventureTheme.value, "and style:", artStyle.value, "and outline:", adventureOutline.value);
         
         // Clean up any existing audio when starting a new game
@@ -477,268 +450,50 @@ export default defineComponent({
           currentMusicMood.value = null;
         }
         
-        const response = await axios.post("/api/game/start", {
-          theme: adventureTheme.value,
-          artStyle: artStyle.value,
-          outline: adventureOutline.value,
-          imageGenerationEnabled: imageGenerationEnabled.value
-        });
-        log("Game start response:", response.data);
+        // Start game via WebSocket
+        const theme = adventureTheme.value?.name || adventureTheme.value;
+        const artStyleValue = artStyle.value?.id || artStyle.value;
+        await wsStartNewGame(theme, artStyleValue, imageGenerationEnabled.value);
         
-        // Check if the response indicates an error
-        if (response.data.status === "error") {
-          loading.value = false;
-          const errorMessage = response.data.message || "Failed to start game. Please try again.";
-          alert(errorMessage);
-          // Go back to setup screen
-          gameStarted.value = false;
-          setupStarted.value = true;
-          return;
-        }
-        
-        sessionId.value = response.data.sessionId;
-        currentGameId.value = response.data.gameId;
-        
-        // Set the adventure title from the response if available
-        if (response.data.adventureTitle) {
-          adventureTitle.value = response.data.adventureTitle;
-        } else if (response.data.outline && response.data.outline.title) {
-          adventureTitle.value = response.data.outline.title;
-        } else if (adventureOutline.value && adventureOutline.value.title) {
+        // Set the adventure title from the outline if available
+        if (adventureOutline.value && adventureOutline.value.title) {
           adventureTitle.value = adventureOutline.value.title;
         }
         
-        // Update URL to include game ID
-        router.push(`/game/${response.data.gameId}`);
-        const initialMessage: GameMessage = {
-          text: response.data.message,
-          type: "game",
-          messageIndex: response.data.messageIndex,
-          hasImage: response.data.hasImage || false,
-          imageLoading: response.data.hasImage || false,
-          scene: response.data.scene
-        };
+        // Update URL to include game ID once we have it
+        // The gameStarted event will provide the game ID
         
-        messages.value.push(initialMessage);
-        const messageIdx = messages.value.length - 1;
-        
-        // Add auto-save notification
-        messages.value.push({
-          text: "✓ Auto-save enabled - Your progress is saved automatically",
-          type: "system"
-        });
-        
-        // If image is being generated for initial scene, poll for it
-        if (response.data.hasImage) {
-          log("Initial scene image generation started, polling for result...");
-          pollForImage(sessionId.value!, response.data.messageIndex, messageIdx);
-        }
-        
-        // If background music is being generated for initial scene, poll for it
-        if (response.data.hasMusic) {
-          log("Initial scene music generation started, polling for result...");
-          pollForMusic(sessionId.value!, response.data.messageIndex);
-        }
-        
-        // Note: Initial message doesn't have audio as it's hardcoded
-        if (response.data.audio) {
-          log("Initial message has audio");
-          playAudioNarration(response.data.audio);
-        } else {
-          log("No audio for initial message");
-        }
       } catch (error) {
-        messages.value.push({
-          text: "Error starting game. Please check if the server is running.",
-          type: "system",
-        });
         log("Error starting game:", error);
-      } finally {
-        loading.value = false;
+        alert("Failed to start game. Please try again.");
+        // Go back to setup screen
+        gameStarted.value = false;
+        setupStarted.value = true;
       }
     };
 
     const sendCommand = async () => {
       const command = userInput.value.trim();
-      if (!command || !sessionId.value) return;
-
-      // Add user message
-      messages.value.push({
-        text: `> ${command}`,
-        type: "user",
-      });
+      if (!command) return;
 
       // Clear input
       userInput.value = "";
 
       try {
-        loading.value = true;
         await scrollToBottom();
-        const response = await axios.post("/api/game/command", {
-          sessionId: sessionId.value,
-          command: command,
-          imageGenerationEnabled: imageGenerationEnabled.value
-        });
-
-        if (response.data.status === "success") {
-          log(`[${sessionId.value || 'no-session'}] Command response received:`, response.data);
-          const newMessage: GameMessage = {
-            text: response.data.response,
-            type: "game",
-            messageIndex: response.data.messageIndex,
-            hasImage: response.data.hasImage || false,
-            imageLoading: response.data.hasImage || false,
-            scene: response.data.scene
-          };
-          
-          messages.value.push(newMessage);
-          const messageIdx = messages.value.length - 1;
-          
-          // Play audio narration if available
-          if (response.data.audio) {
-            log(`[${sessionId.value || 'no-session'}] Audio narration available, playing...`);
-            playAudioNarration(response.data.audio);
-          } else {
-            log(`[${sessionId.value || 'no-session'}] No audio narration in response`);
-          }
-          
-          // If image is being generated, poll for it
-          if (response.data.hasImage) {
-            log(`[${sessionId.value || 'no-session'}] Image generation started, polling for result...`);
-            pollForImage(sessionId.value!, response.data.messageIndex, messageIdx);
-          }
-          
-          // If background music is being generated, poll for it
-          if (response.data.hasMusic) {
-            log(`[${sessionId.value || 'no-session'}] Background music generation started, polling for result...`);
-            pollForMusic(sessionId.value!, response.data.messageIndex);
-          }
-        } else {
-          messages.value.push({
-            text: `Error: ${response.data.error}`,
-            type: "system",
-          });
-        }
+        // Send command via WebSocket (streaming is default)
+        await wsSendCommand(command, true);
+        await scrollToBottom();
       } catch (error) {
-        messages.value.push({
-          text: "Error sending command. Please check your connection.",
-          type: "system",
-        });
         log("Error sending command:", error);
-      } finally {
-        loading.value = false;
-        await scrollToBottom();
       }
     };
     
-    const sendCommandStreaming = async () => {
-      const command = userInput.value.trim();
-      if (!command || !sessionId.value) return;
-      
-      log(`[${sessionId.value}] Sending streaming command: "${command}"`);
-      
-      // Add user message
-      messages.value.push({
-        text: `> ${command}`,
-        type: "user",
-      });
-      
-      // Clear input
-      userInput.value = "";
-      
-      // Create placeholder for streaming message
-      const streamingMessage: GameMessage = {
-        text: "",
-        type: "game",
-        streaming: true // Mark as streaming
-      };
-      messages.value.push(streamingMessage);
-      const messageIdx = messages.value.length - 1;
-      log(`[${sessionId.value}] Created streaming message at index ${messageIdx}`);
-      
-      try {
-        loading.value = true;
-        await scrollToBottom();
-        
-        // Initialize streaming service if needed
-        if (!streamingService.value) {
-          log(`[${sessionId.value}] Initializing streaming service`);
-          streamingService.value = new StreamingService();
-        }
-        
-        log(`[${sessionId.value}] Starting stream command...`);
-        // Start streaming
-        await streamingService.value.streamCommand(
-          sessionId.value,
-          command,
-          imageGenerationEnabled.value,
-          {
-            onChunk: (text: string) => {
-              log(`[${sessionId.value}] Received chunk: "${text.substring(0, 50)}..."`);
-              // Append text to the streaming message
-              streamingMessage.text += text;
-              // Scroll to show new text
-              scrollToBottom();
-            },
-            onComplete: (data) => {
-              log(`[${sessionId.value}] Streaming complete:`, data);
-              
-              // Mark streaming as complete
-              streamingMessage.streaming = false;
-              streamingMessage.messageIndex = data.messageIndex;
-              streamingMessage.scene = data.scene;
-              
-              // Play audio narration if available
-              if (data.audio) {
-                log(`[${sessionId.value}] Audio narration available from streaming`);
-                playAudioNarration(data.audio);
-              }
-              
-              // Handle image generation
-              if (data.hasImage) {
-                log(`[${sessionId.value}] Image generation started`);
-                streamingMessage.hasImage = true;
-                streamingMessage.imageLoading = true;
-                pollForImage(sessionId.value!, data.messageIndex, messageIdx);
-              }
-              
-              // Handle music generation
-              if (data.hasMusic) {
-                log(`[${sessionId.value}] Background music generation started`);
-                pollForMusic(sessionId.value!, data.messageIndex);
-              }
-              
-              loading.value = false;
-              scrollToBottom();
-            },
-            onError: (error: string) => {
-              log(`[${sessionId.value}] Streaming error:`, error);
-              messages.value.push({
-                text: `Error: ${error}`,
-                type: "system",
-              });
-              loading.value = false;
-            }
-          }
-        );
-        
-      } catch (error) {
-        messages.value.push({
-          text: "Error with streaming. Please check your connection.",
-          type: "system",
-        });
-        log("Error in streaming command:", error);
-        loading.value = false;
-      }
-    };
+    // Streaming is handled by the WebSocket composable automatically
     
-    // Modify the main sendCommand to use streaming when enabled
+    // Just use sendCommand (WebSocket handles streaming)
     const sendCommandMain = async () => {
-      if (streamingEnabled.value) {
-        await sendCommandStreaming();
-      } else {
-        await sendCommand();
-      }
+      await sendCommand();
     };
 
     const startRecording = async () => {
@@ -811,26 +566,19 @@ export default defineComponent({
     };
 
     const sendAudioCommand = async (audioBlob: Blob) => {
-      if (!sessionId.value) return;
-
       // Check if audio clip has content
       log("Audio blob size:", audioBlob.size, "bytes");
       if (audioBlob.size === 0) {
-        messages.value.push({
+        // Add error message locally
+        wsMessages.value.push({
           text: "Please hold the record button to record audio",
-          type: "system",
+          isUser: false,
+          timestamp: new Date()
         });
         return;
       }
 
-      // Show user feedback
-      messages.value.push({
-        text: "> [Audio input - processing...]",
-        type: "user",
-      });
-
       try {
-        loading.value = true;
         await scrollToBottom();
 
         // Convert blob to base64
@@ -844,112 +592,25 @@ export default defineComponent({
           };
         });
 
-        const response = await axios.post("/api/game/audio", {
-          sessionId: sessionId.value,
-          audio: base64Audio,
-          imageGenerationEnabled: imageGenerationEnabled.value
-        });
-
-        if (response.data.status === "success") {
-          log(`[${sessionId.value || 'no-session'}] Audio command response received:`, response.data);
-          
-          // Update the last user message to show the transcription
-          if (response.data.transcription && messages.value.length > 0) {
-            const lastUserMsg = messages.value[messages.value.length - 1];
-            if (lastUserMsg.type === "user") {
-              lastUserMsg.text = `> ${response.data.transcription}`;
-              // Log the transcription for debugging
-              log(`[${sessionId.value || 'no-session'}] Transcription result: "${response.data.transcription}"`);
-              console.log(`🎤 Voice transcription: "${response.data.transcription}"`);
-            }
-          }
-          
-          const newMessage: GameMessage = {
-            text: response.data.response,
-            type: "game",
-            messageIndex: response.data.messageIndex,
-            hasImage: response.data.hasImage || false,
-            imageLoading: response.data.hasImage || false,
-            scene: response.data.scene
-          };
-          
-          messages.value.push(newMessage);
-          const messageIdx = messages.value.length - 1;
-          
-          // Play audio narration if available
-          if (response.data.audio) {
-            log(`[${sessionId.value || 'no-session'}] Audio narration available from voice command, playing...`);
-            playAudioNarration(response.data.audio);
-          } else {
-            log(`[${sessionId.value || 'no-session'}] No audio narration in voice command response`);
-          }
-          
-          // If image is being generated, poll for it
-          if (response.data.hasImage) {
-            log(`[${sessionId.value || 'no-session'}] Image generation started from voice command, polling for result...`);
-            pollForImage(sessionId.value!, response.data.messageIndex, messageIdx);
-          }
-          
-          // If background music is being generated, poll for it
-          if (response.data.hasMusic) {
-            log(`[${sessionId.value || 'no-session'}] Background music generation started from voice command, polling for result...`);
-            pollForMusic(sessionId.value!, response.data.messageIndex);
-          }
-        } else {
-          messages.value.push({
-            text: `Error: ${response.data.error}`,
-            type: "system",
-          });
-        }
+        // Send via WebSocket - the transcription and response will come via WebSocket events
+        await wsSendAudioCommand(base64Audio);
       } catch (error) {
-        messages.value.push({
+        // Add error message locally
+        wsMessages.value.push({
           text: "Error processing audio. Please try again.",
-          type: "system",
+          isUser: false,
+          timestamp: new Date()
         });
         log("Error sending audio:", error);
       } finally {
-        loading.value = false;
         await scrollToBottom();
       }
     };
 
-    const pollForImage = async (sessionId: string, messageIndex: number, arrayIndex: number) => {
-      const maxAttempts = 40; // 40 seconds max to account for DALL-E generation time
-      let attempts = 0;
-      
-      const checkImage = async () => {
-        try {
-          const response = await axios.get(`/api/game/image/${sessionId}/${messageIndex}`);
-          
-          if (response.data.status === "ready") {
-            log(`[${sessionId}] Image ready for message ${arrayIndex}!`);
-            // Update the entire message object to ensure Vue detects the change
-            const updatedMessage = { ...messages.value[arrayIndex] };
-            updatedMessage.image = response.data.image;
-            updatedMessage.imageLoading = false;
-            messages.value[arrayIndex] = updatedMessage;
-            log(`[${sessionId}] Image set for message ${arrayIndex}, base64 length: ${response.data.image.length}`);
-          } else if (response.data.status === "failed") {
-            log(`[${sessionId}] Image generation failed`);
-            const updatedMessage = { ...messages.value[arrayIndex] };
-            updatedMessage.imageLoading = false;
-            messages.value[arrayIndex] = updatedMessage;
-          } else if (response.data.status === "pending" && attempts < maxAttempts) {
-            attempts++;
-            setTimeout(checkImage, 1000); // Check again in 1 second
-          } else {
-            log(`[${sessionId}] Image generation timed out`);
-            messages.value[arrayIndex].imageLoading = false;
-          }
-        } catch (error) {
-          log("Error polling for image:", error);
-          messages.value[arrayIndex].imageLoading = false;
-        }
-      };
-      
-      // Start polling after a short delay
-      setTimeout(checkImage, 500);
-    };
+    // Image and music polling are handled by WebSocket events now
+    // These functions are kept as stubs for backward compatibility
+    const pollForImage = () => { /* deprecated - handled by WebSocket */ };
+    const pollForMusic = () => { /* deprecated - handled by WebSocket */ };
 
     const playAudioNarration = (audioBase64: string) => {
       log(`[${sessionId.value || 'no-session'}] playAudioNarration called, narration enabled:`, narrationEnabled.value);
@@ -1014,7 +675,7 @@ export default defineComponent({
       }
     };
 
-    const pollForMusic = async (sessionId: string, messageIndex: number) => {
+    /* Music polling deprecated - old code removed
       const maxAttempts = 60; // 60 seconds max for music generation
       let attempts = 0;
       
@@ -1041,6 +702,7 @@ export default defineComponent({
       // Start polling after a short delay
       setTimeout(checkMusic, 1000);
     };
+    */
 
     const playBackgroundMusic = (musicBase64: string, mood: string) => {
       log(`Playing background music, mood: ${mood}, enabled: ${backgroundMusicEnabled.value}`);
@@ -1141,7 +803,20 @@ export default defineComponent({
     // Game saving is now automatic after each command
     // No manual save function needed
 
-    onMounted(() => {
+    onMounted(async () => {
+      // Set up auto-scroll callback for streaming
+      setScrollCallback(() => {
+        scrollToBottom();
+      });
+      
+      // Connect to WebSocket server
+      try {
+        await connect();
+        log('WebSocket connected successfully');
+      } catch (error) {
+        log('Failed to connect to WebSocket:', error);
+      }
+      
       // Check if there's a game ID in the URL
       const gameIdFromRoute = route.params.gameId as string;
       if (gameIdFromRoute) {
@@ -1176,15 +851,12 @@ export default defineComponent({
       gameOutput,
       sendCommand,
       sendCommandMain,
-      sendCommandStreaming,
       loading,
       recording,
       startRecording,
       stopRecording,
-      streamingEnabled,
       narrationEnabled,
       narrationVolume,
-      pollForImage,
       gameStarted,
       setupStarted,
       selectionStarted,
@@ -1197,11 +869,11 @@ export default defineComponent({
       backgroundMusicEnabled,
       backgroundMusicVolume,
       currentMusicMood,
-      pollForMusic,
       loadGame,
       currentGameId,
       adventureTitle,
       imageGenerationEnabled,
+      isConnected
     };
   },
 });

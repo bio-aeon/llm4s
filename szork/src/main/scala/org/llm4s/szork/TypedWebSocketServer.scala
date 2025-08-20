@@ -1,0 +1,544 @@
+package org.llm4s.szork
+
+import org.java_websocket.WebSocket
+import org.java_websocket.handshake.ClientHandshake
+import org.java_websocket.server.WebSocketServer
+import java.net.InetSocketAddress
+import org.slf4j.LoggerFactory
+import scala.concurrent.Future
+import scala.concurrent.ExecutionContext
+import scala.collection.concurrent.TrieMap
+import upickle.default._
+import java.util.UUID
+import org.llm4s.szork.protocol._
+
+/**
+ * Type-safe WebSocket server using case classes for all communication.
+ */
+class TypedWebSocketServer(
+  port: Int, 
+  sessionManager: SessionManager
+)(implicit ec: ExecutionContext) extends WebSocketServer(new InetSocketAddress(port)) {
+  
+  private val logger = LoggerFactory.getLogger(this.getClass)
+  
+  // Map WebSocket connections to session IDs
+  private val connectionSessions = TrieMap[WebSocket, String]()
+  
+  override def onOpen(conn: WebSocket, handshake: ClientHandshake): Unit = {
+    logger.info(s"WebSocket connection opened from: ${conn.getRemoteSocketAddress}")
+    // Send welcome message
+    sendMessage(conn, ConnectedMessage(
+      message = "Connected to SZork WebSocket server",
+      version = "1.0"
+    ))
+  }
+  
+  override def onClose(conn: WebSocket, code: Int, reason: String, remote: Boolean): Unit = {
+    logger.info(s"WebSocket connection closed: $reason")
+    connectionSessions.remove(conn)
+  }
+  
+  override def onMessage(conn: WebSocket, message: String): Unit = {
+    try {
+      // Parse the message and convert "type" field to the expected format
+      val json = ujson.read(message)
+      val clientMessage = parseClientMessage(json)
+      val timestamp = java.time.LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss.SSS"))
+      
+      logger.debug(s"[$timestamp] Received WebSocket message: ${clientMessage.getClass.getSimpleName}")
+      
+      clientMessage match {
+        case msg: NewGameRequest => handleNewGame(conn, msg)
+        case msg: LoadGameRequest => handleLoadGame(conn, msg)
+        case msg: CommandRequest => handleCommand(conn, msg)
+        case msg: StreamCommandRequest => handleStreamCommand(conn, msg)
+        case msg: AudioCommandRequest => handleAudioCommand(conn, msg)
+        case msg: GetImageRequest => handleGetImage(conn, msg)
+        case msg: GetMusicRequest => handleGetMusic(conn, msg)
+        case _: ListGamesRequest => handleListGames(conn)
+        case msg: PingMessage => 
+          logger.debug(s"Received ping with timestamp: ${msg.timestamp}")
+          val pongMessage = PongMessage(msg.timestamp)
+          logger.debug(s"Sending pong response: $pongMessage")
+          sendMessage(conn, pongMessage)
+      }
+    } catch {
+      case e: Exception =>
+        logger.error(s"Error processing WebSocket message: $message", e)
+        sendMessage(conn, ErrorMessage(
+          error = "Failed to process message",
+          details = Some(e.getMessage)
+        ))
+    }
+  }
+  
+  override def onError(conn: WebSocket, ex: Exception): Unit = {
+    logger.error(s"WebSocket error", ex)
+  }
+  
+  override def onStart(): Unit = {
+    logger.info(s"Type-safe WebSocket server started on port $port")
+  }
+  
+  // Helper method to parse client messages with "type" field
+  private def parseClientMessage(json: ujson.Value): ClientMessage = {
+    val obj = json.obj.clone() // Clone to avoid modification issues
+    val msgType = obj.get("type").map(_.str).getOrElse(
+      throw new Exception("Missing 'type' field in client message")
+    )
+    
+    // Convert "type" to "$type" for uPickle and set the class name
+    obj.remove("type")
+    val className = msgType match {
+      case "newGame" => "NewGameRequest"
+      case "loadGame" => "LoadGameRequest"
+      case "command" => "CommandRequest"
+      case "streamCommand" => "StreamCommandRequest"
+      case "audioCommand" => "AudioCommandRequest"
+      case "getImage" => "GetImageRequest"
+      case "getMusic" => "GetMusicRequest"
+      case "listGames" => "ListGamesRequest"
+      case "ping" => "PingMessage"
+      case other => throw new Exception(s"Unknown client message type: $other")
+    }
+    obj("$type") = className
+    
+    // Now uPickle can deserialize it properly
+    read[ClientMessage](ujson.Value(obj))
+  }
+  
+  // Helper method to send typed messages with "type" field
+  private def sendMessage(conn: WebSocket, message: ServerMessage): Unit = {
+    val baseJson = write[ServerMessage](message)
+    val obj = ujson.read(baseJson).obj
+    
+    // Extract the message type from the class name
+    val msgType = message.getClass.getSimpleName.replace("Message", "")
+    val typeValue = msgType.take(1).toLowerCase + msgType.drop(1)
+    
+    // Create the properly formatted message
+    val result = ujson.Obj()
+    result("type") = typeValue
+    
+    // Wrap non-type fields in "data" object
+    val dataObj = ujson.Obj()
+    obj.foreach { case (k, v) =>
+      if (!k.startsWith("$")) { // Skip internal fields like $type
+        dataObj(k) = v
+      }
+    }
+    
+    if (dataObj.value.nonEmpty) {
+      result("data") = dataObj
+    }
+    
+    val finalMessage = ujson.write(result)
+    logger.debug(s"Sending WebSocket message: $finalMessage")
+    conn.send(finalMessage)
+  }
+  
+  // Handle new game creation
+  private def handleNewGame(conn: WebSocket, request: NewGameRequest): Unit = {
+    logger.info(s"Creating new game with theme: ${request.theme.getOrElse("default")}")
+    
+    val sessionId = UUID.randomUUID().toString
+    val gameId = UUID.randomUUID().toString.take(8)
+    val engine = new GameEngine(gameId)
+    
+    val themeObj = request.theme.map(t => GameTheme(t, t, t))
+    val artStyleObj = request.artStyle.map(a => ArtStyle(a, a))
+    
+    val session = GameSession(
+      id = sessionId,
+      gameId = gameId,
+      engine = engine,
+      theme = themeObj,
+      artStyle = artStyleObj,
+      imageGenerationEnabled = request.imageGeneration
+    )
+    
+    sessionManager.createSession(session)
+    connectionSessions(conn) = sessionId
+    
+    // Initialize the game
+    val response = engine.processCommand("Start adventure")
+    
+    response match {
+      case Right(gameResponse) =>
+        val sceneData = gameResponse.scene.map(convertScene)
+        
+        val message = GameStartedMessage(
+          sessionId = sessionId,
+          gameId = gameId,
+          text = gameResponse.text,
+          messageIndex = engine.getMessageCount,
+          scene = sceneData,
+          audio = gameResponse.audioBase64,
+          hasImage = request.imageGeneration && engine.shouldGenerateSceneImage(gameResponse.text),
+          hasMusic = engine.shouldGenerateBackgroundMusic(gameResponse.text)
+        )
+        
+        sendMessage(conn, message)
+        
+        // Generate image/music if needed
+        if (message.hasImage) {
+          generateImageAsync(session, gameResponse.text, engine.getMessageCount - 1, conn)
+        }
+        if (message.hasMusic) {
+          generateMusicAsync(session, gameResponse.text, engine.getMessageCount - 1, conn)
+        }
+        
+      case Left(error) =>
+        sendMessage(conn, ErrorMessage(s"Failed to start game: $error"))
+    }
+  }
+  
+  // Handle loading existing game
+  private def handleLoadGame(conn: WebSocket, request: LoadGameRequest): Unit = {
+    logger.info(s"Loading game: ${request.gameId}")
+    
+    GamePersistence.loadGame(request.gameId) match {
+      case Right(gameState) =>
+        val sessionId = UUID.randomUUID().toString
+        val engine = new GameEngine(request.gameId)
+        
+        // Restore game state
+        engine.restoreGameState(gameState)
+        
+        val session = GameSession(
+          id = sessionId,
+          gameId = request.gameId,
+          engine = engine,
+          theme = gameState.theme,
+          artStyle = gameState.artStyle
+        )
+        
+        sessionManager.createSession(session)
+        connectionSessions(conn) = sessionId
+        
+        val message = GameLoadedMessage(
+          sessionId = sessionId,
+          gameId = request.gameId,
+          conversation = gameState.conversationHistory.map(e => 
+            ConversationEntry(role = e.role, content = e.content)
+          ),
+          currentLocation = gameState.currentScene.map(_.locationId),
+          currentScene = gameState.currentScene.map(convertScene)
+        )
+        
+        sendMessage(conn, message)
+        
+      case Left(error) =>
+        sendMessage(conn, ErrorMessage(s"Failed to load game: $error"))
+    }
+  }
+  
+  // Handle regular command (non-streaming)
+  private def handleCommand(conn: WebSocket, request: CommandRequest): Unit = {
+    val sessionId = connectionSessions.get(conn)
+    sessionId match {
+      case Some(sid) =>
+        sessionManager.getSession(sid) match {
+          case Some(session) =>
+            logger.info(s"Processing command for session $sid: '${request.command}'")
+            
+            val response = session.engine.processCommand(request.command)
+            response match {
+              case Right(gameResponse) =>
+                val message = CommandResponseMessage(
+                  text = gameResponse.text,
+                  messageIndex = session.engine.getMessageCount,
+                  command = request.command,
+                  scene = gameResponse.scene.map(convertScene),
+                  audio = gameResponse.audioBase64,
+                  hasImage = session.imageGenerationEnabled && session.engine.shouldGenerateSceneImage(gameResponse.text),
+                  hasMusic = session.engine.shouldGenerateBackgroundMusic(gameResponse.text)
+                )
+                
+                sendMessage(conn, message)
+                
+                // Generate image/music if needed
+                if (message.hasImage) {
+                  generateImageAsync(session, gameResponse.text, message.messageIndex - 1, conn)
+                }
+                if (message.hasMusic) {
+                  generateMusicAsync(session, gameResponse.text, message.messageIndex - 1, conn)
+                }
+                
+                // Auto-save
+                if (session.autoSaveEnabled) {
+                  saveGameAsync(session)
+                }
+                
+              case Left(error) =>
+                sendMessage(conn, ErrorMessage(s"Command failed: $error"))
+            }
+            
+          case None =>
+            sendMessage(conn, ErrorMessage("Session not found"))
+        }
+      case None =>
+        sendMessage(conn, ErrorMessage("No active session"))
+    }
+  }
+  
+  // Handle streaming command
+  private def handleStreamCommand(conn: WebSocket, request: StreamCommandRequest): Unit = {
+    val sessionId = connectionSessions.get(conn)
+    sessionId match {
+      case Some(sid) =>
+        sessionManager.getSession(sid) match {
+          case Some(session) =>
+            val imageGeneration = request.imageGeneration.getOrElse(session.imageGenerationEnabled)
+            
+            logger.info(s"Processing streaming command for session $sid: '${request.command}'")
+            
+            Future {
+              var chunkCount = 0
+              val startTime = System.currentTimeMillis()
+              
+              session.engine.processCommandStreaming(
+                request.command,
+                onTextChunk = chunk => {
+                  chunkCount += 1
+                  sendMessage(conn, TextChunkMessage(
+                    text = chunk,
+                    chunkNumber = chunkCount
+                  ))
+                }
+              ) match {
+                case Right(response) =>
+                  val duration = System.currentTimeMillis() - startTime
+                  
+                  val message = StreamCompleteMessage(
+                    messageIndex = session.engine.getMessageCount,
+                    totalChunks = chunkCount,
+                    duration = duration,
+                    scene = response.scene.map(convertScene),
+                    audio = response.audioBase64,
+                    hasImage = imageGeneration && session.engine.shouldGenerateSceneImage(response.text),
+                    hasMusic = session.engine.shouldGenerateBackgroundMusic(response.text)
+                  )
+                  
+                  sendMessage(conn, message)
+                  
+                  logger.info(s"Streaming completed: $chunkCount chunks in ${duration}ms")
+                  
+                  // Generate image/music if needed
+                  if (message.hasImage) {
+                    generateImageAsync(session, response.text, message.messageIndex - 1, conn)
+                  }
+                  if (message.hasMusic) {
+                    generateMusicAsync(session, response.text, message.messageIndex - 1, conn)
+                  }
+                  
+                  // Auto-save
+                  if (session.autoSaveEnabled) {
+                    saveGameAsync(session)
+                  }
+                  
+                case Left(error) =>
+                  sendMessage(conn, ErrorMessage(s"Streaming failed: $error"))
+              }
+            }
+            
+          case None =>
+            sendMessage(conn, ErrorMessage("Session not found"))
+        }
+      case None =>
+        sendMessage(conn, ErrorMessage("No active session"))
+    }
+  }
+  
+  // Handle audio command
+  private def handleAudioCommand(conn: WebSocket, request: AudioCommandRequest): Unit = {
+    val sessionId = connectionSessions.get(conn)
+    sessionId match {
+      case Some(sid) =>
+        sessionManager.getSession(sid) match {
+          case Some(session) =>
+            logger.info(s"Processing audio command for session $sid")
+            
+            // Decode base64 audio and transcribe
+            val audioBytes = java.util.Base64.getDecoder.decode(request.audio)
+            val speechToText = SpeechToText()
+            speechToText.transcribeBytes(audioBytes) match {
+              case Right(transcription) =>
+                sendMessage(conn, TranscriptionMessage(transcription))
+                
+                // Process the transcribed command
+                val response = session.engine.processCommand(transcription)
+                response match {
+                  case Right(gameResponse) =>
+                    val message = CommandResponseMessage(
+                      text = gameResponse.text,
+                      messageIndex = session.engine.getMessageCount,
+                      command = transcription,
+                      scene = gameResponse.scene.map(convertScene),
+                      audio = gameResponse.audioBase64,
+                      hasImage = session.imageGenerationEnabled && session.engine.shouldGenerateSceneImage(gameResponse.text),
+                      hasMusic = session.engine.shouldGenerateBackgroundMusic(gameResponse.text)
+                    )
+                    
+                    sendMessage(conn, message)
+                    
+                    // Generate image/music if needed
+                    if (message.hasImage) {
+                      generateImageAsync(session, gameResponse.text, message.messageIndex - 1, conn)
+                    }
+                    if (message.hasMusic) {
+                      generateMusicAsync(session, gameResponse.text, message.messageIndex - 1, conn)
+                    }
+                    
+                  case Left(error) =>
+                    sendMessage(conn, ErrorMessage(s"Command failed: $error"))
+                }
+                
+              case Left(error) =>
+                sendMessage(conn, ErrorMessage(s"Failed to transcribe audio: $error"))
+            }
+            
+          case None =>
+            sendMessage(conn, ErrorMessage("Session not found"))
+        }
+      case None =>
+        sendMessage(conn, ErrorMessage("No active session"))
+    }
+  }
+  
+  // Handle get image request
+  private def handleGetImage(conn: WebSocket, request: GetImageRequest): Unit = {
+    val sessionId = connectionSessions.get(conn)
+    sessionId match {
+      case Some(sid) =>
+        sessionManager.getSession(sid) match {
+          case Some(session) =>
+            session.pendingImages.get(request.messageIndex) match {
+              case Some(Some(image)) =>
+                sendMessage(conn, ImageDataMessage(
+                  messageIndex = request.messageIndex,
+                  image = image,
+                  status = "ready"
+                ))
+              case Some(None) =>
+                sendMessage(conn, ImageDataMessage(
+                  messageIndex = request.messageIndex,
+                  image = "",
+                  status = "pending"
+                ))
+              case None =>
+                sendMessage(conn, ErrorMessage(s"Image not found for message ${request.messageIndex}"))
+            }
+          case None =>
+            sendMessage(conn, ErrorMessage("Session not found"))
+        }
+      case None =>
+        sendMessage(conn, ErrorMessage("No active session"))
+    }
+  }
+  
+  // Handle get music request
+  private def handleGetMusic(conn: WebSocket, request: GetMusicRequest): Unit = {
+    val sessionId = connectionSessions.get(conn)
+    sessionId match {
+      case Some(sid) =>
+        sessionManager.getSession(sid) match {
+          case Some(session) =>
+            session.pendingMusic.get(request.messageIndex) match {
+              case Some(Some((music, mood))) =>
+                sendMessage(conn, MusicDataMessage(
+                  messageIndex = request.messageIndex,
+                  music = music,
+                  mood = mood,
+                  status = "ready"
+                ))
+              case Some(None) =>
+                sendMessage(conn, MusicDataMessage(
+                  messageIndex = request.messageIndex,
+                  music = "",
+                  mood = "",
+                  status = "pending"
+                ))
+              case None =>
+                sendMessage(conn, ErrorMessage(s"Music not found for message ${request.messageIndex}"))
+            }
+          case None =>
+            sendMessage(conn, ErrorMessage("Session not found"))
+        }
+      case None =>
+        sendMessage(conn, ErrorMessage("No active session"))
+    }
+  }
+  
+  // Handle list games request
+  private def handleListGames(conn: WebSocket): Unit = {
+    val games = GamePersistence.listGames().map(g => GameInfo(
+      gameId = g.gameId,
+      theme = g.theme,
+      timestamp = g.lastPlayed,
+      locationName = g.adventureTitle  // Use adventure title as location name
+    ))
+    
+    sendMessage(conn, GamesListMessage(games))
+  }
+  
+  // Generate image asynchronously
+  private def generateImageAsync(session: GameSession, text: String, messageIndex: Int, conn: WebSocket): Unit = {
+    Future {
+      logger.info(s"Generating image for message $messageIndex")
+      val imageOpt = session.engine.generateSceneImage(text, Some(session.gameId))
+      session.pendingImages(messageIndex) = imageOpt
+      
+      imageOpt.foreach { image =>
+        sendMessage(conn, ImageReadyMessage(
+          messageIndex = messageIndex,
+          image = image
+        ))
+      }
+    }
+  }
+  
+  // Generate music asynchronously
+  private def generateMusicAsync(session: GameSession, text: String, messageIndex: Int, conn: WebSocket): Unit = {
+    Future {
+      logger.info(s"Generating music for message $messageIndex")
+      val musicOpt = session.engine.generateBackgroundMusic(text, Some(session.gameId))
+      session.pendingMusic(messageIndex) = musicOpt
+      
+      musicOpt.foreach { case (music, mood) =>
+        sendMessage(conn, MusicReadyMessage(
+          messageIndex = messageIndex,
+          music = music,
+          mood = mood
+        ))
+      }
+    }
+  }
+  
+  // Save game asynchronously
+  private def saveGameAsync(session: GameSession): Unit = {
+    Future {
+      val gameState = session.engine.getGameState(session.gameId, session.theme, session.artStyle)
+      GamePersistence.saveGame(gameState) match {
+        case Right(_) =>
+          logger.debug(s"Auto-saved game ${session.gameId}")
+        case Left(error) =>
+          logger.warn(s"Auto-save failed for game ${session.gameId}: $error")
+      }
+    }
+  }
+  
+  // Convert internal GameScene to protocol SceneData
+  private def convertScene(scene: GameScene): SceneData = {
+    SceneData(
+      locationName = scene.locationName,
+      exits = scene.exits.map(exit => ExitData(
+        direction = exit.direction,
+        description = exit.description.getOrElse("")
+      )),
+      items = scene.items,
+      npcs = scene.npcs
+    )
+  }
+}

@@ -158,9 +158,15 @@ object SzorkServer extends cask.Main with cask.Routes {
     }
   }
   
-  private val sessions = mutable.Map[String, GameSession]()
+  private val sessionManager = new SessionManager()
   private val imageExecutor = Executors.newFixedThreadPool(4)
   private implicit val imageEC: ExecutionContext = ExecutionContext.fromExecutor(imageExecutor)
+  
+  // Start WebSocket server for all game communication
+  private val wsPort = 9002 // WebSocket port (HTTP is on 9001)
+  private val wsServer = new TypedWebSocketServer(wsPort, sessionManager)(imageEC)
+  wsServer.start()
+  logger.info(s"Type-safe WebSocket server started on port $wsPort for all game communication")
 
 
   @get("/api/health")
@@ -319,7 +325,7 @@ object SzorkServer extends cask.Main with cask.Routes {
           imageGenerationEnabled = imageGenerationEnabled
         )
         
-        sessions(sessionId) = session
+        sessionManager.createSession(session)
         logger.info(s"[$sessionId] Game session started")
         
         val messageIndex = engine.getMessageCount - 1
@@ -418,13 +424,13 @@ object SzorkServer extends cask.Main with cask.Routes {
     |================================================================================
     """.stripMargin)
     
-    sessions.get(sessionId) match {
+    sessionManager.getSession(sessionId) match {
       case Some(session) =>
         // Update session's imageGenerationEnabled if provided
         val updatedSession = imageGenerationEnabled match {
           case enabled if enabled != session.imageGenerationEnabled =>
             val newSession = session.copy(imageGenerationEnabled = enabled)
-            sessions(sessionId) = newSession
+            sessionManager.updateSession(sessionId, newSession)
             newSession
           case _ => session
         }
@@ -442,6 +448,8 @@ object SzorkServer extends cask.Main with cask.Routes {
               command,
               onTextChunk = chunk => {
                 // Send text chunk as SSE event
+                val timestamp = java.time.LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss.SSS"))
+                logger.info(s"[$timestamp] [Session: $sessionId] Sending chunk: ${chunk.take(50)}...")
                 val eventData = ujson.Obj("text" -> chunk).render()
                 val event = s"event: chunk\ndata: $eventData\n\n"
                 eventQueue.offer(event)
@@ -537,14 +545,18 @@ object SzorkServer extends cask.Main with cask.Routes {
               Thread.sleep(10) // Small delay to avoid busy waiting
               event = eventQueue.poll()
             }
-            Option(event).getOrElse("")
+            val result = Option(event).getOrElse("")
+            if (result.nonEmpty) {
+              val timestamp = java.time.LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss.SSS"))
+              logger.info(s"[$timestamp] [Session: $sessionId] Dequeuing event for streaming: ${result.take(100)}...")
+            }
+            result
           }
         }
         
-        // Return SSE response using a streaming approach
+        // Return SSE response using a streaming approach with chunked transfer encoding
         cask.model.Response(
           new java.io.InputStream {
-            private val buffer = new java.io.ByteArrayOutputStream()
             private var currentBytes: Array[Byte] = Array.empty
             private var position = 0
             
@@ -556,6 +568,8 @@ object SzorkServer extends cask.Main with cask.Routes {
                   if (event.nonEmpty) {
                     currentBytes = event.getBytes("UTF-8")
                     position = 0
+                    val timestamp = java.time.LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss.SSS"))
+                    logger.info(s"[$timestamp] [Session: $sessionId] Sending ${currentBytes.length} bytes to client")
                   } else {
                     return read() // Skip empty events
                   }
@@ -568,13 +582,19 @@ object SzorkServer extends cask.Main with cask.Routes {
               position += 1
               byte
             }
+            
+            override def available(): Int = {
+              // Report available bytes to encourage immediate sending
+              currentBytes.length - position
+            }
           },
           statusCode = 200,
           headers = Seq(
             "Content-Type" -> "text/event-stream",
             "Cache-Control" -> "no-cache",
             "Connection" -> "keep-alive",
-            "X-Accel-Buffering" -> "no" // Disable nginx buffering
+            "X-Accel-Buffering" -> "no", // Disable nginx buffering
+            "Transfer-Encoding" -> "chunked" // Use chunked transfer encoding for streaming
           )
         )
         
@@ -600,13 +620,13 @@ object SzorkServer extends cask.Main with cask.Routes {
     
     logger.info(s"Processing command for session $sessionId: $command")
     
-    sessions.get(sessionId) match {
+    sessionManager.getSession(sessionId) match {
       case Some(session) =>
         // Update session's imageGenerationEnabled if provided
         val updatedSession = imageGenerationEnabled match {
           case Some(enabled) => 
             val newSession = session.copy(imageGenerationEnabled = enabled)
-            sessions(sessionId) = newSession
+            sessionManager.updateSession(sessionId, newSession)
             newSession
           case None => session
         }
@@ -730,13 +750,13 @@ object SzorkServer extends cask.Main with cask.Routes {
           logger.info(s"========================================")
           
           // Process the transcribed text as a regular command
-          sessions.get(sessionId) match {
+          sessionManager.getSession(sessionId) match {
             case Some(session) =>
               // Update session's imageGenerationEnabled if provided
               val updatedSession = imageGenerationEnabled match {
                 case Some(enabled) => 
                   val newSession = session.copy(imageGenerationEnabled = enabled)
-                  sessions(sessionId) = newSession
+                  sessionManager.updateSession(sessionId, newSession)
                   newSession
                 case None => session
               }
@@ -855,7 +875,7 @@ object SzorkServer extends cask.Main with cask.Routes {
     
     try {
       val index = messageIndex.toInt
-      sessions.get(sessionId) match {
+      sessionManager.getSession(sessionId) match {
         case Some(session) =>
           session.pendingImages.get(index) match {
             case Some(Some(imageBase64)) =>
@@ -897,7 +917,7 @@ object SzorkServer extends cask.Main with cask.Routes {
     
     try {
       val index = messageIndex.toInt
-      sessions.get(sessionId) match {
+      sessionManager.getSession(sessionId) match {
         case Some(session) =>
           session.pendingMusic.get(index) match {
             case Some(Some((musicBase64, mood))) =>
@@ -937,7 +957,7 @@ object SzorkServer extends cask.Main with cask.Routes {
   @get("/api/game/session/:sessionId")
   def getSession(sessionId: String) = {
     logger.debug(s"Getting session info for: $sessionId")
-    sessions.get(sessionId) match {
+    sessionManager.getSession(sessionId) match {
       case Some(session) =>
         ujson.Obj(
           "sessionId" -> sessionId,
@@ -980,7 +1000,7 @@ object SzorkServer extends cask.Main with cask.Routes {
   def saveGame(sessionId: String) = {
     logger.info(s"Saving game for session: $sessionId")
     
-    sessions.get(sessionId) match {
+    sessionManager.getSession(sessionId) match {
       case Some(session) =>
         val gameState = session.engine.getGameState(session.gameId, session.theme, session.artStyle)
         GamePersistence.saveGame(gameState) match {
@@ -1027,7 +1047,7 @@ object SzorkServer extends cask.Main with cask.Routes {
           artStyle = gameState.artStyle
         )
         
-        sessions(sessionId) = session
+        sessionManager.createSession(session)
         logger.info(s"Game loaded successfully: $gameId -> session $sessionId")
         
         // Check for cached image for current scene

@@ -30,6 +30,15 @@ export class StreamingService {
   private abortController: AbortController | null = null;
   private decoder = new TextDecoder();
   
+  private getTimestamp(): string {
+    const now = new Date();
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    const seconds = String(now.getSeconds()).padStart(2, '0');
+    const millis = String(now.getMilliseconds()).padStart(3, '0');
+    return `[${hours}:${minutes}:${seconds}.${millis}]`;
+  }
+  
   /**
    * Stream a command to the server and receive text chunks as they're generated.
    */
@@ -39,7 +48,7 @@ export class StreamingService {
     imageGenerationEnabled: boolean,
     callbacks: StreamingCallbacks
   ): Promise<void> {
-    console.log(`[StreamingService] Starting stream for session ${sessionId}, command: "${command}"`);
+    console.log(`${this.getTimestamp()} [StreamingService] Starting stream for session ${sessionId}, command: "${command}"`);
     
     // Clean up any existing stream
     this.close();
@@ -53,7 +62,7 @@ export class StreamingService {
       imageGenerationEnabled
     });
     
-    console.log(`[StreamingService] Sending POST to /api/game/stream`);
+    console.log(`${this.getTimestamp()} [StreamingService] Sending POST to /api/game/stream`);
     
     try {
       const response = await fetch('/api/game/stream', {
@@ -65,7 +74,7 @@ export class StreamingService {
         signal: this.abortController.signal
       });
       
-      console.log(`[StreamingService] Response status: ${response.status}`);
+      console.log(`${this.getTimestamp()} [StreamingService] Response status: ${response.status}`);
       
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
@@ -76,16 +85,16 @@ export class StreamingService {
         throw new Error('No response body');
       }
       
-      console.log(`[StreamingService] Got reader, starting to process stream`);
+      console.log(`${this.getTimestamp()} [StreamingService] Got reader, starting to process stream`);
       await this.processStream(reader, callbacks);
-      console.log(`[StreamingService] Stream processing completed`);
+      console.log(`${this.getTimestamp()} [StreamingService] Stream processing completed`);
       
     } catch (error) {
       if (error instanceof Error) {
         if (error.name === 'AbortError') {
-          console.log('Stream aborted');
+          console.log(`${this.getTimestamp()} Stream aborted`);
         } else {
-          console.error('Streaming error:', error);
+          console.error(`${this.getTimestamp()} Streaming error:`, error);
           callbacks.onError(error.message);
         }
       }
@@ -101,49 +110,75 @@ export class StreamingService {
   ): Promise<void> {
     let buffer = '';
     let chunkCount = 0;
+    let currentEvent = '';
+    let currentData = '';
+    let streamComplete = false;
     
-    console.log(`[StreamingService] Starting to read stream`);
+    console.log(`${this.getTimestamp()} [StreamingService] Starting to read stream`);
     
     try {
-      while (true) {
+      while (!streamComplete) {
         const { done, value } = await reader.read();
         
         if (done) {
-          console.log(`[StreamingService] Stream done after ${chunkCount} chunks`);
+          console.log(`${this.getTimestamp()} [StreamingService] Stream done after ${chunkCount} chunks`);
           break;
         }
         
         chunkCount++;
         // Decode the chunk and add to buffer
         const decoded = this.decoder.decode(value, { stream: true });
-        console.log(`[StreamingService] Chunk ${chunkCount}: ${decoded.length} chars`);
+        console.log(`${this.getTimestamp()} [StreamingService] Chunk ${chunkCount}: ${decoded.length} chars`);
         buffer += decoded;
         
         // Process complete SSE events in the buffer
         const lines = buffer.split('\n');
         buffer = lines.pop() || ''; // Keep incomplete line in buffer
         
-        let currentEvent = '';
-        let currentData = '';
-        
         for (const line of lines) {
           if (line.startsWith('event: ')) {
+            // If we had a previous event with data but no empty line, process it now
+            if (currentEvent && currentData) {
+              console.log(`${this.getTimestamp()} [StreamingService] Processing buffered event: ${currentEvent}`);
+              this.handleSSEEvent(currentEvent, currentData, callbacks);
+              if (currentEvent === 'complete') {
+                streamComplete = true;
+                console.log(`${this.getTimestamp()} [StreamingService] Complete event processed, stopping stream`);
+              }
+            }
             currentEvent = line.substring(7).trim();
-            console.log(`[StreamingService] Found event: ${currentEvent}`);
+            currentData = '';
+            console.log(`${this.getTimestamp()} [StreamingService] Found event: ${currentEvent}`);
           } else if (line.startsWith('data: ')) {
             currentData = line.substring(6);
-            console.log(`[StreamingService] Found data for event ${currentEvent}, length: ${currentData.length}`);
+            console.log(`${this.getTimestamp()} [StreamingService] Found data for event ${currentEvent}, length: ${currentData.length}`);
           } else if (line === '' && currentEvent && currentData) {
             // Empty line marks end of event
-            console.log(`[StreamingService] Processing complete event: ${currentEvent}`);
+            console.log(`${this.getTimestamp()} [StreamingService] Processing complete event: ${currentEvent}`);
             this.handleSSEEvent(currentEvent, currentData, callbacks);
+            if (currentEvent === 'complete') {
+              streamComplete = true;
+              console.log(`[StreamingService] Complete event processed, stopping stream`);
+            }
             currentEvent = '';
             currentData = '';
           }
         }
+        
+        // If stream is complete, stop reading
+        if (streamComplete) {
+          console.log(`${this.getTimestamp()} [StreamingService] Breaking out of read loop due to complete event`);
+          break;
+        }
+      }
+      
+      // Process any remaining buffered event
+      if (currentEvent && currentData && !streamComplete) {
+        console.log(`${this.getTimestamp()} [StreamingService] Processing final buffered event: ${currentEvent}`);
+        this.handleSSEEvent(currentEvent, currentData, callbacks);
       }
     } catch (error) {
-      console.error('Error processing stream:', error);
+      console.error(`${this.getTimestamp()} Error processing stream:`, error);
       if (error instanceof Error) {
         callbacks.onError(error.message);
       }
@@ -160,7 +195,7 @@ export class StreamingService {
     data: string,
     callbacks: StreamingCallbacks
   ): void {
-    console.log(`[StreamingService] Handling SSE event: ${eventType}, data length: ${data.length}`);
+    console.log(`${this.getTimestamp()} [StreamingService] Handling SSE event: ${eventType}, data length: ${data.length}`);
     
     try {
       const parsedData = JSON.parse(data);
@@ -169,14 +204,14 @@ export class StreamingService {
         case 'chunk':
           // Text chunk to display progressively
           if (parsedData.text) {
-            console.log(`[StreamingService] Text chunk: "${parsedData.text.substring(0, 50)}..."`);
+            console.log(`${this.getTimestamp()} [StreamingService] Text chunk: "${parsedData.text.substring(0, 50)}..."`);
             callbacks.onChunk(parsedData.text);
           }
           break;
           
         case 'complete':
           // Streaming complete, with final metadata
-          console.log(`[StreamingService] Handling complete event:`, parsedData);
+          console.log(`${this.getTimestamp()} [StreamingService] Handling complete event:`, parsedData);
           callbacks.onComplete(parsedData as CompleteResponse);
           break;
           
@@ -186,10 +221,10 @@ export class StreamingService {
           break;
           
         default:
-          console.warn('Unknown SSE event type:', eventType);
+          console.warn(`${this.getTimestamp()} Unknown SSE event type:`, eventType);
       }
     } catch (error) {
-      console.error('Error parsing SSE data:', error);
+      console.error(`${this.getTimestamp()} Error parsing SSE data:`, error);
       callbacks.onError('Failed to parse server response');
     }
   }
