@@ -37,16 +37,9 @@ export function useWebSocketGame() {
   // Callback for auto-scrolling during streaming
   let scrollCallback: (() => void) | null = null;
   
-  // Helper function for logging with timestamps
+  // Helper function for logging game-specific events
   const log = (message: string, ...args: any[]) => {
-    const timestamp = new Date().toLocaleTimeString('en-US', { 
-      hour12: false, 
-      hour: '2-digit', 
-      minute: '2-digit', 
-      second: '2-digit', 
-      fractionalSecondDigits: 3 
-    });
-    console.log(`[${timestamp}] [WebSocket] ${message}`, ...args);
+    console.log(`[Game] ${message}`, ...args);
   };
   
   /**
@@ -83,16 +76,14 @@ export function useWebSocketGame() {
     // Connected
     wsClient.value.on('connected', (msg) => {
       const data = (msg as any).data;
-      log('Server connected:', data);
+      // Connection confirmation handled by WebSocketClient
     });
     
     // Game started
     wsClient.value.on('gameStarted', (msg) => {
       const data = (msg as any).data;
-      log('Game started:', data);
       sessionId.value = data.sessionId;
       gameId.value = data.gameId;
-      
       // Add initial message
       const gameMessage: GameMessage = {
         text: data.text,
@@ -106,7 +97,6 @@ export function useWebSocketGame() {
       // Set imageLoading flag if image is being generated
       if (data.hasImage) {
         gameMessage.imageLoading = true;
-        log(`Message ${data.messageIndex} expects an image, setting loading flag`);
       }
       
       messages.value.push(gameMessage);
@@ -127,7 +117,6 @@ export function useWebSocketGame() {
     // Game loaded
     wsClient.value.on('gameLoaded', (msg) => {
       const data = (msg as any).data;
-      log('Game loaded:', data);
       sessionId.value = data.sessionId;
       gameId.value = data.gameId;
       
@@ -159,8 +148,6 @@ export function useWebSocketGame() {
     // Command response
     wsClient.value.on('commandResponse', (msg) => {
       const data = (msg as any).data;
-      log('Command response:', data);
-      
       const gameMessage: GameMessage = {
         text: data.text,
         isUser: false,
@@ -173,7 +160,6 @@ export function useWebSocketGame() {
       // Set imageLoading flag if image is being generated
       if (data.hasImage) {
         gameMessage.imageLoading = true;
-        log(`Message ${data.messageIndex} expects an image, setting loading flag`);
       }
       
       messages.value.push(gameMessage);
@@ -186,8 +172,6 @@ export function useWebSocketGame() {
     // Text chunk (for streaming)
     wsClient.value.on('textChunk', (msg) => {
       const data = (msg as any).data;
-      log(`Text chunk #${data.chunkNumber}: "${data.text.substring(0, 50)}..."`);
-      
       if (!currentStreamingMessage.value) {
         // Should not happen, but handle gracefully
         log('Warning: Received text chunk without active streaming message');
@@ -209,7 +193,6 @@ export function useWebSocketGame() {
     // Stream complete
     wsClient.value.on('streamComplete', (msg) => {
       const data = (msg as any).data;
-      log('Stream complete:', data);
       isStreaming.value = false;
       
       if (currentStreamingMessage.value) {
@@ -221,7 +204,6 @@ export function useWebSocketGame() {
         // Set imageLoading flag if image is being generated
         if (data.hasImage) {
           currentStreamingMessage.value.imageLoading = true;
-          log(`Message ${data.messageIndex} expects an image, setting loading flag`);
         }
         
         currentStreamingMessage.value = null;
@@ -235,8 +217,6 @@ export function useWebSocketGame() {
     // Transcription
     wsClient.value.on('transcription', (msg) => {
       const data = (msg as any).data;
-      log('Transcription:', data.text);
-      
       // Add user message with transcribed text
       messages.value.push({
         text: data.text,
@@ -248,14 +228,11 @@ export function useWebSocketGame() {
     // Image ready
     wsClient.value.on('imageReady', (msg) => {
       const data = (msg as any).data;
-      log(`Image ready for message ${data.messageIndex}`);
-      
       const message = messages.value.find(m => m.messageIndex === data.messageIndex);
       if (message) {
         // Vue component expects 'image' property, not 'imageUrl'
         (message as any).image = data.image;
         message.imageLoading = false;
-        log(`Set image for message ${data.messageIndex} (${data.image.length} bytes)`);
       } else {
         log(`Warning: Could not find message with index ${data.messageIndex} to attach image`);
       }
@@ -264,8 +241,6 @@ export function useWebSocketGame() {
     // Music ready
     wsClient.value.on('musicReady', (msg) => {
       const data = (msg as any).data;
-      log(`Music ready for message ${data.messageIndex}, mood: ${data.mood}`);
-      
       const message = messages.value.find(m => m.messageIndex === data.messageIndex);
       if (message) {
         message.backgroundMusic = data.music;
@@ -277,15 +252,12 @@ export function useWebSocketGame() {
     // Games list
     wsClient.value.on('gamesList', (msg) => {
       const data = (msg as any).data;
-      log('Games list received:', data.games.length, 'games');
       savedGames.value = data.games;
     });
     
     // Error
     wsClient.value.on('error', (msg) => {
       const data = (msg as any).data;
-      log('Error:', data.error, data.details);
-      
       // Add error message to chat
       messages.value.push({
         text: `Error: ${data.error}`,
@@ -296,13 +268,7 @@ export function useWebSocketGame() {
     
     // Pong
     wsClient.value.on('pong', (msg) => {
-      log('Raw pong message received:', JSON.stringify(msg));
-      const data = (msg as any).data;
-      if (data && typeof data.timestamp === 'number') {
-        log('Pong received, latency:', Date.now() - data.timestamp, 'ms');
-      } else {
-        log('Pong received (no timestamp data), data:', data);
-      }
+      // Pong handling and latency measurement handled by WebSocketClient
     });
   };
   
@@ -314,7 +280,6 @@ export function useWebSocketGame() {
       await connect();
     }
     
-    log('Starting new game with theme:', theme, 'art:', artStyle);
     wsClient.value?.newGame(theme, artStyle, imageGeneration);
   };
   
@@ -326,7 +291,6 @@ export function useWebSocketGame() {
       await connect();
     }
     
-    log('Loading game:', gameIdToLoad);
     wsClient.value?.loadGame(gameIdToLoad);
   };
   
@@ -346,8 +310,6 @@ export function useWebSocketGame() {
     });
     
     if (streaming) {
-      log('Sending streaming command:', command);
-      
       // Create streaming message placeholder
       currentStreamingMessage.value = {
         text: '',
@@ -360,7 +322,6 @@ export function useWebSocketGame() {
       
       wsClient.value?.sendStreamCommand(command);
     } else {
-      log('Sending regular command:', command);
       wsClient.value?.sendCommand(command);
     }
   };
@@ -373,7 +334,6 @@ export function useWebSocketGame() {
       await connect();
     }
     
-    log('Sending audio command');
     wsClient.value?.sendAudio(audioBase64);
   };
   
@@ -385,7 +345,6 @@ export function useWebSocketGame() {
       await connect();
     }
     
-    log('Requesting saved games list');
     wsClient.value?.listGames();
   };
   
@@ -393,7 +352,6 @@ export function useWebSocketGame() {
    * Disconnect from server
    */
   const disconnect = () => {
-    log('Disconnecting');
     wsClient.value?.disconnect();
     wsClient.value = null;
     isConnected.value = false;
@@ -401,12 +359,10 @@ export function useWebSocketGame() {
   
   // Audio playback functions (stubs - implement based on your audio setup)
   const playAudioNarration = (audioBase64: string) => {
-    log('Playing audio narration');
     // Implement audio playback
   };
   
   const playBackgroundMusic = (musicBase64: string, mood: string) => {
-    log('Playing background music, mood:', mood);
     // Implement background music playback
   };
   

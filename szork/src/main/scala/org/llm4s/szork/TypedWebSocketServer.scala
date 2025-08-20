@@ -44,28 +44,42 @@ class TypedWebSocketServer(
       // Parse the message and convert "type" field to the expected format
       val json = ujson.read(message)
       val clientMessage = parseClientMessage(json)
-      val timestamp = java.time.LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss.SSS"))
+      val sessionId = connectionSessions.get(conn).getOrElse("no-session")
       
-      logger.debug(s"[$timestamp] Received WebSocket message: ${clientMessage.getClass.getSimpleName}")
-      
+      // Log received message with key details
       clientMessage match {
-        case msg: NewGameRequest => handleNewGame(conn, msg)
-        case msg: LoadGameRequest => handleLoadGame(conn, msg)
-        case msg: CommandRequest => handleCommand(conn, msg)
-        case msg: StreamCommandRequest => handleStreamCommand(conn, msg)
-        case msg: AudioCommandRequest => handleAudioCommand(conn, msg)
-        case msg: GetImageRequest => handleGetImage(conn, msg)
-        case msg: GetMusicRequest => handleGetMusic(conn, msg)
-        case _: ListGamesRequest => handleListGames(conn)
+        case msg: NewGameRequest => 
+          logger.info(s"[WS-IN] Session: $sessionId | Type: NewGameRequest | Theme: ${msg.theme.getOrElse("default")} | ArtStyle: ${msg.artStyle.getOrElse("default")} | ImageGen: ${msg.imageGeneration}")
+          handleNewGame(conn, msg)
+        case msg: LoadGameRequest => 
+          logger.info(s"[WS-IN] Session: $sessionId | Type: LoadGameRequest | GameId: ${msg.gameId}")
+          handleLoadGame(conn, msg)
+        case msg: CommandRequest => 
+          logger.info(s"[WS-IN] Session: $sessionId | Type: CommandRequest | Command: '${msg.command.take(50)}${if(msg.command.length > 50) "..." else ""}'")
+          handleCommand(conn, msg)
+        case msg: StreamCommandRequest => 
+          logger.info(s"[WS-IN] Session: $sessionId | Type: StreamCommandRequest | Command: '${msg.command.take(50)}${if(msg.command.length > 50) "..." else ""}' | ImageGen: ${msg.imageGeneration.getOrElse(false)}")
+          handleStreamCommand(conn, msg)
+        case msg: AudioCommandRequest => 
+          logger.info(s"[WS-IN] Session: $sessionId | Type: AudioCommandRequest | AudioLength: ${msg.audio.length} bytes")
+          handleAudioCommand(conn, msg)
+        case msg: GetImageRequest => 
+          logger.info(s"[WS-IN] Session: $sessionId | Type: GetImageRequest | MessageIndex: ${msg.messageIndex}")
+          handleGetImage(conn, msg)
+        case msg: GetMusicRequest => 
+          logger.info(s"[WS-IN] Session: $sessionId | Type: GetMusicRequest | MessageIndex: ${msg.messageIndex}")
+          handleGetMusic(conn, msg)
+        case _: ListGamesRequest => 
+          logger.info(s"[WS-IN] Session: $sessionId | Type: ListGamesRequest")
+          handleListGames(conn)
         case msg: PingMessage => 
-          logger.debug(s"Received ping with timestamp: ${msg.timestamp}")
+          logger.debug(s"[WS-IN] Session: $sessionId | Type: PingMessage | Timestamp: ${msg.timestamp}")
           val pongMessage = PongMessage(msg.timestamp)
-          logger.debug(s"Sending pong response: $pongMessage")
           sendMessage(conn, pongMessage)
       }
     } catch {
       case e: Exception =>
-        logger.error(s"Error processing WebSocket message: $message", e)
+        logger.error(s"[WS-ERROR] Error processing WebSocket message: $message", e)
         sendMessage(conn, ErrorMessage(
           error = "Failed to process message",
           details = Some(e.getMessage)
@@ -110,6 +124,7 @@ class TypedWebSocketServer(
   
   // Helper method to send typed messages with "type" field
   private def sendMessage(conn: WebSocket, message: ServerMessage): Unit = {
+    val sessionId = connectionSessions.get(conn).getOrElse("no-session")
     val baseJson = write[ServerMessage](message)
     val obj = ujson.read(baseJson).obj
     
@@ -133,8 +148,46 @@ class TypedWebSocketServer(
       result("data") = dataObj
     }
     
+    // Log outgoing message with key details
+    val logMessage = message match {
+      case msg: ConnectedMessage =>
+        s"[WS-OUT] Session: $sessionId | Type: ConnectedMessage | Version: ${msg.version}"
+      case msg: GameStartedMessage =>
+        s"[WS-OUT] Session: $sessionId | Type: GameStartedMessage | GameId: ${msg.gameId} | MsgIdx: ${msg.messageIndex} | TextLen: ${msg.text.length} | HasImage: ${msg.hasImage} | HasMusic: ${msg.hasMusic}"
+      case msg: GameLoadedMessage =>
+        s"[WS-OUT] Session: $sessionId | Type: GameLoadedMessage | GameId: ${msg.gameId} | Messages: ${msg.conversation.length}"
+      case msg: CommandResponseMessage =>
+        s"[WS-OUT] Session: $sessionId | Type: CommandResponseMessage | MsgIdx: ${msg.messageIndex} | TextLen: ${msg.text.length} | HasImage: ${msg.hasImage}"
+      case msg: TextChunkMessage =>
+        s"[WS-OUT] Session: $sessionId | Type: TextChunkMessage | ChunkNum: ${msg.chunkNumber} | TextLen: ${msg.text.length}"
+      case msg: StreamCompleteMessage =>
+        s"[WS-OUT] Session: $sessionId | Type: StreamCompleteMessage | MsgIdx: ${msg.messageIndex} | Chunks: ${msg.totalChunks} | Duration: ${msg.duration}ms | HasImage: ${msg.hasImage}"
+      case msg: TranscriptionMessage =>
+        s"[WS-OUT] Session: $sessionId | Type: TranscriptionMessage | TextLen: ${msg.text.length}"
+      case msg: ImageReadyMessage =>
+        s"[WS-OUT] Session: $sessionId | Type: ImageReadyMessage | MsgIdx: ${msg.messageIndex} | ImageLen: ${msg.image.length} bytes"
+      case msg: MusicReadyMessage =>
+        s"[WS-OUT] Session: $sessionId | Type: MusicReadyMessage | MsgIdx: ${msg.messageIndex} | Mood: ${msg.mood} | MusicLen: ${msg.music.length} bytes"
+      case msg: ImageDataMessage =>
+        s"[WS-OUT] Session: $sessionId | Type: ImageDataMessage | MsgIdx: ${msg.messageIndex} | Status: ${msg.status}"
+      case msg: MusicDataMessage =>
+        s"[WS-OUT] Session: $sessionId | Type: MusicDataMessage | MsgIdx: ${msg.messageIndex} | Status: ${msg.status}"
+      case msg: GamesListMessage =>
+        s"[WS-OUT] Session: $sessionId | Type: GamesListMessage | Games: ${msg.games.length}"
+      case msg: ErrorMessage =>
+        s"[WS-OUT] Session: $sessionId | Type: ErrorMessage | Error: ${msg.error}"
+      case msg: PongMessage =>
+        s"[WS-DEBUG] Session: $sessionId | Type: PongMessage | Timestamp: ${msg.timestamp}"
+    }
+    
+    // Use debug level for ping/pong, info for everything else
+    if (message.isInstanceOf[PongMessage]) {
+      logger.debug(logMessage)
+    } else {
+      logger.info(logMessage)
+    }
+    
     val finalMessage = ujson.write(result)
-    logger.debug(s"Sending WebSocket message: $finalMessage")
     conn.send(finalMessage)
   }
   
@@ -486,14 +539,12 @@ class TypedWebSocketServer(
   // Generate image asynchronously
   private def generateImageAsync(session: GameSession, text: String, messageIndex: Int, conn: WebSocket): Unit = {
     Future {
-      logger.info(s"Generating image for message $messageIndex")
+      logger.debug(s"Starting image generation for message $messageIndex")
       val imageOpt = session.engine.generateSceneImage(text, Some(session.gameId))
-      logger.info(s"Image generation result for message $messageIndex: ${imageOpt.isDefined} (${imageOpt.map(_.length).getOrElse(0)} bytes)")
       session.pendingImages(messageIndex) = imageOpt
       
       imageOpt match {
         case Some(image) =>
-          logger.info(s"Sending ImageReadyMessage for message $messageIndex (${image.length} bytes)")
           sendMessage(conn, ImageReadyMessage(
             messageIndex = messageIndex,
             image = image
@@ -507,14 +558,12 @@ class TypedWebSocketServer(
   // Generate music asynchronously
   private def generateMusicAsync(session: GameSession, text: String, messageIndex: Int, conn: WebSocket): Unit = {
     Future {
-      logger.info(s"Generating music for message $messageIndex")
+      logger.debug(s"Starting music generation for message $messageIndex")
       val musicOpt = session.engine.generateBackgroundMusic(text, Some(session.gameId))
-      logger.info(s"Music generation result for message $messageIndex: ${musicOpt.isDefined}")
       session.pendingMusic(messageIndex) = musicOpt
       
       musicOpt match {
         case Some((music, mood)) =>
-          logger.info(s"Sending MusicReadyMessage for message $messageIndex, mood: $mood (${music.length} bytes)")
           sendMessage(conn, MusicReadyMessage(
             messageIndex = messageIndex,
             music = music,

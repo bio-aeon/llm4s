@@ -675,34 +675,7 @@ export default defineComponent({
       }
     };
 
-    /* Music polling deprecated - old code removed
-      const maxAttempts = 60; // 60 seconds max for music generation
-      let attempts = 0;
-      
-      const checkMusic = async () => {
-        try {
-          const response = await axios.get(`/api/game/music/${sessionId}/${messageIndex}`);
-          
-          if (response.data.status === "ready") {
-            log(`[${sessionId}] Background music ready for message ${messageIndex}, mood: ${response.data.mood}`);
-            playBackgroundMusic(response.data.music, response.data.mood);
-          } else if (response.data.status === "failed") {
-            log(`[${sessionId}] Background music generation failed`);
-          } else if (response.data.status === "pending" && attempts < maxAttempts) {
-            attempts++;
-            setTimeout(checkMusic, 1000); // Check again in 1 second
-          } else {
-            log(`[${sessionId}] Background music generation timed out`);
-          }
-        } catch (error) {
-          log("Error polling for music:", error);
-        }
-      };
-      
-      // Start polling after a short delay
-      setTimeout(checkMusic, 1000);
-    };
-    */
+    // Music is now delivered via WebSocket - no polling needed
 
     const playBackgroundMusic = (musicBase64: string, mood: string) => {
       log(`Playing background music, mood: ${mood}, enabled: ${backgroundMusicEnabled.value}`);

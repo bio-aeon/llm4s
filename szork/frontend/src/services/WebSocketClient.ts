@@ -123,13 +123,48 @@ export class WebSocketClient {
    */
   send(message: ClientMessage): void {
     if (!this.isConnected || !this.ws) {
-      console.log('[WebSocketClient] Not connected, queueing message');
+      console.log('[WS-QUEUE] Message queued:', message.type);
       this.messageQueue.push(message);
       return;
     }
     
+    // Log outgoing message with key details
+    let logMessage = `[WS-OUT] Type: ${message.type}`;
+    switch (message.type) {
+      case 'newGame':
+        logMessage += ` | Theme: ${message.theme || 'default'} | ArtStyle: ${message.artStyle || 'default'} | ImageGen: ${message.imageGeneration}`;
+        break;
+      case 'loadGame':
+        logMessage += ` | GameId: ${message.gameId}`;
+        break;
+      case 'command':
+        logMessage += ` | Command: '${message.command.substring(0, 50)}${message.command.length > 50 ? '...' : ''}'`;
+        break;
+      case 'streamCommand':
+        logMessage += ` | Command: '${message.command.substring(0, 50)}${message.command.length > 50 ? '...' : ''}' | ImageGen: ${message.imageGeneration}`;
+        break;
+      case 'audioCommand':
+        logMessage += ` | AudioLength: ${message.audio.length} bytes`;
+        break;
+      case 'getImage':
+        logMessage += ` | MessageIndex: ${message.messageIndex}`;
+        break;
+      case 'getMusic':
+        logMessage += ` | MessageIndex: ${message.messageIndex}`;
+        break;
+      case 'ping':
+        logMessage = `[WS-DEBUG] Type: ping | Timestamp: ${message.timestamp}`;
+        break;
+    }
+    
+    // Use different log level for ping messages
+    if (message.type === 'ping') {
+      console.debug(logMessage);
+    } else {
+      console.log(logMessage);
+    }
+    
     const json = JSON.stringify(message);
-    console.log('[WebSocketClient] Sending:', message.type);
     this.ws.send(json);
   }
   
@@ -156,7 +191,64 @@ export class WebSocketClient {
   private handleMessage(data: string): void {
     try {
       const message = JSON.parse(data) as ServerMessage;
-      console.log('[WebSocketClient] Received:', message.type);
+      
+      // Log incoming message with key details
+      let logMessage = `[WS-IN] Type: ${message.type}`;
+      const msgData = (message as any).data;
+      
+      switch (message.type) {
+        case 'connected':
+          logMessage += ` | Version: ${msgData?.version}`;
+          break;
+        case 'gameStarted':
+          logMessage += ` | GameId: ${msgData?.gameId} | SessionId: ${msgData?.sessionId} | MsgIdx: ${msgData?.messageIndex} | TextLen: ${msgData?.text?.length} | HasImage: ${msgData?.hasImage}`;
+          break;
+        case 'gameLoaded':
+          logMessage += ` | GameId: ${msgData?.gameId} | SessionId: ${msgData?.sessionId} | Messages: ${msgData?.conversation?.length}`;
+          break;
+        case 'commandResponse':
+          logMessage += ` | MsgIdx: ${msgData?.messageIndex} | TextLen: ${msgData?.text?.length} | HasImage: ${msgData?.hasImage}`;
+          break;
+        case 'textChunk':
+          logMessage += ` | ChunkNum: ${msgData?.chunkNumber} | TextLen: ${msgData?.text?.length}`;
+          break;
+        case 'streamComplete':
+          logMessage += ` | MsgIdx: ${msgData?.messageIndex} | Chunks: ${msgData?.totalChunks} | Duration: ${msgData?.duration}ms | HasImage: ${msgData?.hasImage}`;
+          break;
+        case 'transcription':
+          logMessage += ` | TextLen: ${msgData?.text?.length}`;
+          break;
+        case 'imageReady':
+          logMessage += ` | MsgIdx: ${msgData?.messageIndex} | ImageLen: ${msgData?.image?.length} bytes`;
+          break;
+        case 'musicReady':
+          logMessage += ` | MsgIdx: ${msgData?.messageIndex} | Mood: ${msgData?.mood} | MusicLen: ${msgData?.music?.length} bytes`;
+          break;
+        case 'imageData':
+          logMessage += ` | MsgIdx: ${msgData?.messageIndex} | Status: ${msgData?.status}`;
+          break;
+        case 'musicData':
+          logMessage += ` | MsgIdx: ${msgData?.messageIndex} | Status: ${msgData?.status}`;
+          break;
+        case 'gamesList':
+          logMessage += ` | Games: ${msgData?.games?.length}`;
+          break;
+        case 'error':
+          logMessage = `[WS-ERROR] Type: error | Error: ${msgData?.error}`;
+          break;
+        case 'pong':
+          logMessage = `[WS-DEBUG] Type: pong | Timestamp: ${msgData?.timestamp}`;
+          break;
+      }
+      
+      // Use different log levels based on message type
+      if (message.type === 'pong') {
+        console.debug(logMessage);
+      } else if (message.type === 'error') {
+        console.error(logMessage);
+      } else {
+        console.log(logMessage);
+      }
       
       // Call registered handlers for this message type
       const handlers = this.messageHandlers.get(message.type);
@@ -171,7 +263,7 @@ export class WebSocketClient {
       }
       
     } catch (error) {
-      console.error('[WebSocketClient] Failed to parse message:', error);
+      console.error('[WS-ERROR] Failed to parse message:', error);
     }
   }
   
