@@ -410,7 +410,13 @@ object SzorkServer extends cask.Main with cask.Routes {
     val command = json("command").str
     val imageGenerationEnabled = json.obj.get("imageGenerationEnabled").map(_.bool).getOrElse(true)
     
-    logger.info(s"Starting streaming command for session $sessionId: $command")
+    logger.info(s"""
+    |================================================================================
+    |USER COMMAND RECEIVED [Session: $sessionId]
+    |Command: "$command"
+    |Image Generation: $imageGenerationEnabled
+    |================================================================================
+    """.stripMargin)
     
     sessions.get(sessionId) match {
       case Some(session) =>
@@ -425,7 +431,7 @@ object SzorkServer extends cask.Main with cask.Routes {
         
         // Create a queue for SSE events
         val eventQueue = new java.util.concurrent.LinkedBlockingQueue[String]()
-        var streamingComplete = false
+        @volatile var streamingComplete = false
         
         // Start streaming in background
         import scala.concurrent.Future
@@ -471,6 +477,8 @@ object SzorkServer extends cask.Main with cask.Routes {
                 
                 val completeEvent = s"event: complete\ndata: ${completeData.render()}\n\n"
                 eventQueue.offer(completeEvent)
+                
+                logger.info(s"Streaming response completed for session $sessionId")
                 
                 // Handle async image generation
                 if (completeData("hasImage").bool) {
@@ -1123,6 +1131,38 @@ object SzorkServer extends cask.Main with cask.Routes {
         })
       )
     )
+  }
+  
+  @delete("/api/game/:gameId")
+  def deleteGame(gameId: String) = {
+    logger.info(s"Deleting game: $gameId")
+    
+    // Delete the game save file
+    val deleteResult = GamePersistence.deleteGame(gameId)
+    
+    // Also clear the media cache for this game
+    val cacheResult = MediaCache.clearGameCache(gameId)
+    
+    deleteResult match {
+      case Right(_) =>
+        logger.info(s"Successfully deleted game: $gameId")
+        // Log cache clearing result but don't fail if cache clearing fails
+        cacheResult match {
+          case Left(error) => logger.warn(s"Failed to clear cache for deleted game $gameId: $error")
+          case _ => logger.info(s"Also cleared cache for deleted game: $gameId")
+        }
+        
+        ujson.Obj(
+          "status" -> "success",
+          "message" -> s"Game deleted: $gameId"
+        )
+      case Left(error) =>
+        logger.error(s"Failed to delete game $gameId: $error")
+        ujson.Obj(
+          "status" -> "error",
+          "error" -> error
+        )
+    }
   }
   
   @delete("/api/game/cache/:gameId")  

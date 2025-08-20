@@ -189,13 +189,16 @@ export default defineComponent({
       if (!gameToDelete.value) return;
       
       try {
-        // Note: We'll need to add a delete endpoint to the backend
-        // For now, just remove from the list
+        // Call the backend to delete the game
+        await axios.delete(`/api/game/${gameToDelete.value.gameId}`);
+        
+        // Remove from the frontend list
         savedGames.value = savedGames.value.filter(g => g.gameId !== gameToDelete.value!.gameId);
         deleteDialog.value = false;
         gameToDelete.value = null;
       } catch (error) {
         console.error('Error deleting game:', error);
+        alert('Failed to delete the game. Please try again.');
       }
     };
     

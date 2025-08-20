@@ -6,6 +6,8 @@ import java.nio.charset.StandardCharsets
 import org.slf4j.LoggerFactory
 import scala.util.Try
 import scala.jdk.CollectionConverters._
+import org.llm4s.llmconnect.model.{Message, UserMessage, AssistantMessage, SystemMessage, ToolMessage}
+import org.llm4s.agent.AgentState
 
 case class ConversationEntry(
   role: String,
@@ -13,19 +15,34 @@ case class ConversationEntry(
   timestamp: Long
 )
 
+// Cache entry for generated media (images/music) per location
+case class MediaCacheEntry(
+  locationId: String,
+  imagePrompt: Option[String],
+  imageCacheId: Option[String],
+  musicPrompt: Option[String],
+  musicCacheId: Option[String],
+  generatedAt: Long
+)
+
 case class GameState(
   gameId: String,
   theme: Option[GameTheme],
   artStyle: Option[ArtStyle],
+  adventureOutline: Option[AdventureOutline],  // Full adventure design
   currentScene: Option[GameScene],
   visitedLocations: Set[String],
-  conversationHistory: List[ConversationEntry],
+  conversationHistory: List[ConversationEntry],  // Kept for backwards compatibility
   inventory: List[String],
   createdAt: Long,
   lastSaved: Long,
   lastPlayed: Long = System.currentTimeMillis(),
   totalPlayTime: Long = 0,  // Total play time in milliseconds
-  adventureTitle: Option[String] = None
+  adventureTitle: Option[String] = None,
+  // New fields for complete state persistence
+  agentMessages: List[ujson.Value] = List.empty,  // Full agent conversation as JSON
+  mediaCache: Map[String, MediaCacheEntry] = Map.empty,  // Media cache per location
+  systemPrompt: Option[String] = None  // Complete system prompt including adventure outline
 )
 
 case class GameMetadata(
@@ -92,14 +109,30 @@ object GamePersistence {
         "conversationHistory" -> state.conversationHistory.map(entry => Obj(
           "role" -> entry.role,
           "content" -> entry.content,
-          "timestamp" -> entry.timestamp
+          "timestamp" -> ujson.Num(entry.timestamp)
         )),
         "inventory" -> state.inventory,
-        "createdAt" -> state.createdAt,
-        "lastSaved" -> state.lastSaved,
-        "lastPlayed" -> state.lastPlayed,
-        "totalPlayTime" -> state.totalPlayTime,
-        "adventureTitle" -> state.adventureTitle.map(ujson.Str(_)).getOrElse(ujson.Null)
+        "createdAt" -> ujson.Num(state.createdAt),
+        "lastSaved" -> ujson.Num(state.lastSaved),
+        "lastPlayed" -> ujson.Num(state.lastPlayed),
+        "totalPlayTime" -> ujson.Num(state.totalPlayTime),
+        "adventureTitle" -> state.adventureTitle.map(ujson.Str(_)).getOrElse(ujson.Null),
+        // New fields for enhanced state
+        "adventureOutline" -> state.adventureOutline.map(outline => 
+          AdventureGenerator.outlineToJson(outline)
+        ).getOrElse(Null),
+        "agentMessages" -> state.agentMessages,
+        "mediaCache" -> Obj.from(state.mediaCache.map { case (locationId, entry) =>
+          locationId -> Obj(
+            "locationId" -> entry.locationId,
+            "imagePrompt" -> entry.imagePrompt.map(ujson.Str(_)).getOrElse(Null),
+            "imageCacheId" -> entry.imageCacheId.map(ujson.Str(_)).getOrElse(Null),
+            "musicPrompt" -> entry.musicPrompt.map(ujson.Str(_)).getOrElse(Null),
+            "musicCacheId" -> entry.musicCacheId.map(ujson.Str(_)).getOrElse(Null),
+            "generatedAt" -> ujson.Num(entry.generatedAt)
+          )
+        }),
+        "systemPrompt" -> state.systemPrompt.map(ujson.Str(_)).getOrElse(Null)
       )
       
       // Write to file with pretty formatting
@@ -189,7 +222,41 @@ object GamePersistence {
         adventureTitle = json.obj.get("adventureTitle").flatMap {
           case ujson.Null => None
           case s => Some(s.str)
-        }.filter(_.nonEmpty)
+        }.filter(_.nonEmpty),
+        // Load new enhanced state fields
+        adventureOutline = json.obj.get("adventureOutline").flatMap {
+          case Null => None
+          case outline => Some(parseAdventureOutlineFromJson(outline))
+        },
+        agentMessages = json.obj.get("agentMessages").map(_.arr.toList).getOrElse(List.empty),
+        mediaCache = json.obj.get("mediaCache").map { cacheObj =>
+          cacheObj.obj.map { case (locationId, entry) =>
+            locationId -> MediaCacheEntry(
+              locationId = entry("locationId").str,
+              imagePrompt = entry("imagePrompt") match {
+                case Null => None
+                case s => Some(s.str)
+              },
+              imageCacheId = entry("imageCacheId") match {
+                case Null => None
+                case s => Some(s.str)
+              },
+              musicPrompt = entry("musicPrompt") match {
+                case Null => None
+                case s => Some(s.str)
+              },
+              musicCacheId = entry("musicCacheId") match {
+                case Null => None
+                case s => Some(s.str)
+              },
+              generatedAt = readTimestamp(entry("generatedAt"))
+            )
+          }.toMap
+        }.getOrElse(Map.empty),
+        systemPrompt = json.obj.get("systemPrompt").flatMap {
+          case Null => None
+          case s => Some(s.str)
+        }
       )
       
       logger.info(s"Loaded game $gameId from ${filePath.toString}")
@@ -199,6 +266,40 @@ object GamePersistence {
         logger.error(s"Failed to load game $gameId", e)
         Left(s"Failed to load game: ${e.getMessage}")
     }
+  }
+  
+  // Helper function to parse AdventureOutline from JSON
+  private def parseAdventureOutlineFromJson(json: ujson.Value): AdventureOutline = {
+    AdventureOutline(
+      title = json("title").str,
+      tagline = json.obj.get("tagline").flatMap {
+        case Null => None
+        case s => Some(s.str)
+      },
+      mainQuest = json("mainQuest").str,
+      subQuests = json("subQuests").arr.map(_.str).toList,
+      keyLocations = json("keyLocations").arr.map(loc => LocationOutline(
+        id = loc("id").str,
+        name = loc("name").str,
+        description = loc("description").str,
+        significance = loc("significance").str
+      )).toList,
+      importantItems = json("importantItems").arr.map(item => ItemOutline(
+        name = item("name").str,
+        description = item("description").str,
+        purpose = item("purpose").str
+      )).toList,
+      keyCharacters = json("keyCharacters").arr.map(char => CharacterOutline(
+        name = char("name").str,
+        role = char("role").str,
+        description = char("description").str
+      )).toList,
+      adventureArc = json("adventureArc").str,
+      specialMechanics = json.obj.get("specialMechanics").flatMap {
+        case Null => None
+        case s => Some(s.str)
+      }
+    )
   }
   
   def listGames(): List[GameMetadata] = {

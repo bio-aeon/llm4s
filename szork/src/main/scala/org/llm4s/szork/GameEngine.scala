@@ -2,10 +2,11 @@ package org.llm4s.szork
 
 import org.llm4s.agent.{Agent, AgentState, AgentStatus}
 import org.llm4s.llmconnect.LLM
-import org.llm4s.llmconnect.model.{Message, UserMessage, AssistantMessage}
+import org.llm4s.llmconnect.model.{Message, UserMessage, AssistantMessage, SystemMessage, ToolMessage, ToolCall}
 import org.llm4s.error.LLMError
 import org.llm4s.toolapi.ToolRegistry
 import org.slf4j.LoggerFactory
+import ujson._
 
 class GameEngine(sessionId: String = "", theme: Option[String] = None, artStyle: Option[String] = None, adventureOutline: Option[AdventureOutline] = None) {
   private val logger = LoggerFactory.getLogger("GameEngine")
@@ -31,6 +32,11 @@ class GameEngine(sessionId: String = "", theme: Option[String] = None, artStyle:
       |Art Style: $artStyleDescription
       |
       |$adventureOutlinePrompt
+      |
+      |GAME INITIALIZATION:
+      |When you receive the message "Start adventure", generate the opening scene of the adventure.
+      |This should be the player's starting location, introducing them to the world and setting.
+      |Create a fullScene JSON response with rich descriptions that draw the player into the adventure.
       |
       |TEXT ADVENTURE WRITING CONVENTIONS:
       |
@@ -87,7 +93,17 @@ class GameEngine(sessionId: String = "", theme: Option[String] = None, artStyle:
       |
       |Response Format:
       |
-      |IMPORTANT: Choose the appropriate response type based on the action:
+      |IMPORTANT: Output format for streaming support:
+      |1. First output the narration text on its own line
+      |2. Then output "<<<JSON>>>" on a new line
+      |3. Then output the full JSON response
+      |
+      |Example:
+      |You enter the dark cavern. Water drips from stalactites overhead.
+      |<<<JSON>>>
+      |{"responseType": "fullScene", ...rest of JSON...}
+      |
+      |Choose the appropriate response type based on the action:
       |
       |TYPE 1 - FULL SCENE (for movement, look, or scene changes):
       |{
@@ -155,18 +171,28 @@ class GameEngine(sessionId: String = "", theme: Option[String] = None, artStyle:
   private var totalPlayTime: Long = 0L  // Accumulated play time from previous sessions
   private var adventureTitle: Option[String] = adventureOutline.map(_.title)
   
+  // Enhanced state tracking
+  private var mediaCache: Map[String, MediaCacheEntry] = Map.empty
+  private val completeSystemPrompt: String = gamePrompt  // Store the complete system prompt
+  
   def initialize(): Either[String, String] = {
     logger.info(s"[$sessionId] Initializing game with theme: $themeDescription")
     
     // Clear inventory for new game
     GameTools.clearInventory()
     
-    val initPrompt = s"Generate the opening scene for the adventure. The player is just beginning their journey. Create a fullScene JSON response with the starting location, following the text adventure conventions specified in your instructions."
+    // Use "Start adventure" as the trigger message (not shown to user)
+    val initPrompt = "Start adventure"
+    
+    // Initialize the agent with the complete system prompt including adventure outline
     currentState = agent.initialize(
       initPrompt,
       toolRegistry,
-      systemPromptAddition = Some(gamePrompt)
+      systemPromptAddition = Some(completeSystemPrompt)
     )
+    
+    // Track the initialization message (but don't show to user)
+    // This ensures the agent knows to generate the opening scene
     
     // Automatically run the initial scene generation
     agent.run(currentState) match {
@@ -251,9 +277,19 @@ class GameEngine(sessionId: String = "", theme: Option[String] = None, artStyle:
             (simple.narrationText, currentScene) // Keep the current scene
             
           case None =>
-            // Fallback to raw text if parsing fails
-            logger.warn(s"[$sessionId] Could not parse structured response, using raw text")
-            (if (response.nonEmpty) response else "No response", currentScene)
+            // Fallback: try to extract just the narrationText from the JSON
+            logger.warn(s"[$sessionId] Could not parse structured response, attempting to extract narrationText")
+            val narrationText = extractNarrationTextFromJson(response).getOrElse {
+              // If that also fails and it looks like JSON, return an error message
+              if (response.trim.startsWith("{")) {
+                logger.error(s"[$sessionId] Failed to parse JSON response, showing error to user")
+                "I apologize, but there was an error processing the game response. Please try your command again."
+              } else {
+                // If it's not JSON, use the raw text
+                response
+              }
+            }
+            (narrationText, currentScene)
         }
         
         // Generate audio if requested
@@ -299,9 +335,10 @@ class GameEngine(sessionId: String = "", theme: Option[String] = None, artStyle:
     // Track user command in conversation history
     trackConversation("user", command)
     
-    // Create streaming agent
+    // Create streaming agent and text parser
     val streamingAgent = new StreamingAgent(client)
     val accumulatedText = new StringBuilder()
+    val textParser = new StreamingTextParser()
     
     // Add user message to conversation
     currentState = currentState
@@ -310,22 +347,49 @@ class GameEngine(sessionId: String = "", theme: Option[String] = None, artStyle:
     
     // Run the agent with streaming
     val textStartTime = System.currentTimeMillis()
-    logger.info(s"[$sessionId] Starting streaming text generation for command: $command")
+    logger.info(s"[$sessionId] Starting streaming text generation for command: '$command'")
     
+    var chunkCount = 0
+    var narrativeChunkCount = 0
     streamingAgent.runStreaming(currentState, chunk => {
-      // Stream text chunks to frontend as they arrive
+      // Process the JSON chunk to extract narration text
+      chunkCount += 1
       accumulatedText.append(chunk)
-      onTextChunk(chunk)
+      logger.debug(s"[$sessionId] Received chunk #$chunkCount: ${chunk.take(50)}...")
+      
+      // Try to extract narration text
+      textParser.processChunk(chunk) match {
+        case Some(narrationText) =>
+          // We extracted some narration text - stream it to the user
+          narrativeChunkCount += 1
+          logger.debug(s"[$sessionId] Streaming narrative chunk #$narrativeChunkCount: ${narrationText.take(50)}...")
+          onTextChunk(narrationText)
+        case None =>
+          // No narration text extracted yet
+          logger.debug(s"[$sessionId] No narration text in chunk #$chunkCount")
+      }
     }) match {
       case Right(newState) =>
         currentState = newState
         val responseText = accumulatedText.toString
         
         val textGenerationTime = System.currentTimeMillis() - textStartTime
-        logger.info(s"[$sessionId] Streaming text generation completed in ${textGenerationTime}ms (${responseText.length} chars)")
+        logger.info(s"[$sessionId] Streaming completed: $chunkCount chunks, $narrativeChunkCount narrative chunks, ${responseText.length} chars in ${textGenerationTime}ms")
         
-        // Try to parse the complete response as structured JSON
-        val (finalText, sceneOpt) = parseResponseData(responseText) match {
+        // Extract the JSON portion from the response
+        val jsonResponse = textParser.getJson().getOrElse {
+          // Fallback: try to find JSON in the full response
+          val jsonMarker = "<<<JSON>>>"
+          val markerIndex = responseText.indexOf(jsonMarker)
+          if (markerIndex >= 0) {
+            responseText.substring(markerIndex + jsonMarker.length).trim
+          } else {
+            responseText // Use full response as fallback
+          }
+        }
+        
+        // Try to parse the JSON response
+        val (finalText, sceneOpt) = parseResponseData(jsonResponse) match {
           case Some(scene: GameScene) =>
             // Full scene response - update current scene
             currentScene = Some(scene)
@@ -339,9 +403,19 @@ class GameEngine(sessionId: String = "", theme: Option[String] = None, artStyle:
             (simple.narrationText, currentScene)
             
           case None =>
-            // Fallback to raw text if parsing fails
-            logger.warn(s"[$sessionId] Could not parse structured response, using raw text")
-            (if (responseText.nonEmpty) responseText else "No response", currentScene)
+            // Fallback: try to extract just the narrationText from the JSON
+            logger.warn(s"[$sessionId] Could not parse structured response in streaming, attempting to extract narrationText")
+            val narrationText = extractNarrationTextFromJson(responseText).getOrElse {
+              // If that also fails and it looks like JSON, return an error message
+              if (responseText.trim.startsWith("{")) {
+                logger.error(s"[$sessionId] Failed to parse JSON response in streaming, showing error to user")
+                "I apologize, but there was an error processing the game response. Please try your command again."
+              } else {
+                // If it's not JSON, use the raw text
+                responseText
+              }
+            }
+            (narrationText, currentScene)
         }
         
         // Track assistant response in conversation history
@@ -408,6 +482,24 @@ class GameEngine(sessionId: String = "", theme: Option[String] = None, artStyle:
     parseResponseData(response) match {
       case Some(scene: GameScene) => Some(scene)
       case _ => None
+    }
+  }
+  
+  // Helper to extract just narrationText from JSON when full parsing fails
+  private def extractNarrationTextFromJson(response: String): Option[String] = {
+    try {
+      if (response.trim.startsWith("{") && response.contains("narrationText")) {
+        // Try to parse with ujson
+        val json = ujson.read(response)
+        json.obj.get("narrationText").map(_.str)
+      } else {
+        None
+      }
+    } catch {
+      case _: Exception =>
+        // If ujson parsing fails, try a simple regex extraction
+        val pattern = """"narrationText"\s*:\s*"([^"]+(?:\\.[^"]+)*)"""".r
+        pattern.findFirstMatchIn(response).map(_.group(1).replace("\\\"", "\"").replace("\\n", "\n"))
     }
   }
   
@@ -568,13 +660,82 @@ class GameEngine(sessionId: String = "", theme: Option[String] = None, artStyle:
   
   def getCurrentScene: Option[GameScene] = currentScene
   
+  // Track media generation in cache
+  def addMediaCacheEntry(locationId: String, entry: MediaCacheEntry): Unit = {
+    mediaCache = mediaCache + (locationId -> entry)
+    logger.debug(s"Added media cache entry for location: $locationId")
+  }
+  
+  def updateMediaCacheImage(locationId: String, imagePrompt: String, imageCacheId: String): Unit = {
+    val existing = mediaCache.get(locationId).getOrElse(
+      MediaCacheEntry(locationId, None, None, None, None, System.currentTimeMillis())
+    )
+    val updated = existing.copy(
+      imagePrompt = Some(imagePrompt),
+      imageCacheId = Some(imageCacheId),
+      generatedAt = System.currentTimeMillis()
+    )
+    mediaCache = mediaCache + (locationId -> updated)
+    logger.debug(s"Updated image cache for location: $locationId")
+  }
+  
+  def updateMediaCacheMusic(locationId: String, musicPrompt: String, musicCacheId: String): Unit = {
+    val existing = mediaCache.get(locationId).getOrElse(
+      MediaCacheEntry(locationId, None, None, None, None, System.currentTimeMillis())
+    )
+    val updated = existing.copy(
+      musicPrompt = Some(musicPrompt),
+      musicCacheId = Some(musicCacheId),
+      generatedAt = System.currentTimeMillis()
+    )
+    mediaCache = mediaCache + (locationId -> updated)
+    logger.debug(s"Updated music cache for location: $locationId")
+  }
+  
+  // Helper to convert Message to JSON for persistence
+  private def messageToJson(message: Message): ujson.Value = {
+    message match {
+      case UserMessage(content) => ujson.Obj(
+        "type" -> "user",
+        "content" -> content
+      )
+      case AssistantMessage(contentOpt, toolCalls) => ujson.Obj(
+        "type" -> "assistant",
+        "content" -> contentOpt.map(ujson.Str(_)).getOrElse(ujson.Null),
+        "toolCalls" -> toolCalls.map(tc => ujson.Obj(
+          "id" -> tc.id,
+          "name" -> tc.name,
+          "arguments" -> tc.arguments
+        ))
+      )
+      case SystemMessage(content) => ujson.Obj(
+        "type" -> "system",
+        "content" -> content
+      )
+      case ToolMessage(toolCallId, content) => ujson.Obj(
+        "type" -> "tool",
+        "toolCallId" -> toolCallId,
+        "content" -> content
+      )
+    }
+  }
+  
   // State extraction for persistence
   def getGameState(gameId: String, gameTheme: Option[GameTheme], gameArtStyle: Option[ArtStyle]): GameState = {
     val currentSessionTime = System.currentTimeMillis() - sessionStartTime
+    
+    // Convert all agent messages to JSON for complete state persistence
+    val agentMessagesJson = if (currentState != null) {
+      currentState.conversation.messages.map(messageToJson).toList
+    } else {
+      List.empty
+    }
+    
     GameState(
       gameId = gameId,
       theme = gameTheme,
       artStyle = gameArtStyle,
+      adventureOutline = adventureOutline,  // Include the full adventure outline
       currentScene = currentScene,
       visitedLocations = visitedLocations,
       conversationHistory = conversationHistory,
@@ -583,12 +744,39 @@ class GameEngine(sessionId: String = "", theme: Option[String] = None, artStyle:
       lastSaved = System.currentTimeMillis(),
       lastPlayed = System.currentTimeMillis(),
       totalPlayTime = totalPlayTime + currentSessionTime,
-      adventureTitle = adventureTitle
+      adventureTitle = adventureTitle,
+      agentMessages = agentMessagesJson,  // Complete agent state
+      mediaCache = mediaCache,  // Media cache entries
+      systemPrompt = Some(completeSystemPrompt)  // Complete system prompt
     )
+  }
+  
+  // Helper to convert JSON back to Message for restoration
+  private def jsonToMessage(json: ujson.Value): Message = {
+    json("type").str match {
+      case "user" => UserMessage(content = json("content").str)
+      case "assistant" => 
+        val content = json("content") match {
+          case ujson.Null => None
+          case s => Some(s.str)
+        }
+        val toolCalls = json("toolCalls").arr.map(tc => ToolCall(
+          id = tc("id").str,
+          name = tc("name").str,
+          arguments = tc("arguments")  // Already a ujson.Value, not a string
+        )).toSeq
+        AssistantMessage(contentOpt = content, toolCalls = toolCalls)
+      case "system" => SystemMessage(content = json("content").str)
+      case "tool" => ToolMessage(
+        toolCallId = json("toolCallId").str,
+        content = json("content").str
+      )
+    }
   }
   
   // Restore game from saved state
   def restoreGameState(state: GameState): Unit = {
+    // Restore simple state
     currentScene = state.currentScene
     visitedLocations = state.visitedLocations
     conversationHistory = state.conversationHistory
@@ -596,35 +784,61 @@ class GameEngine(sessionId: String = "", theme: Option[String] = None, artStyle:
     totalPlayTime = state.totalPlayTime
     sessionStartTime = System.currentTimeMillis()  // Reset session timer when restoring
     adventureTitle = state.adventureTitle
+    mediaCache = state.mediaCache  // Restore media cache
     
-    // Reconstruct conversation for the agent
-    // We'll create a simplified conversation with just the essential messages
-    val messages = state.conversationHistory.flatMap { entry =>
-      entry.role match {
-        case "user" => Some(UserMessage(content = entry.content))
-        case "assistant" => Some(AssistantMessage(contentOpt = Some(entry.content)))
-        case _ => None
+    // Restore complete agent state if available
+    if (state.agentMessages.nonEmpty) {
+      // Convert JSON messages back to Message objects
+      val messages = state.agentMessages.map(jsonToMessage)
+      
+      // Use the stored system prompt or fall back to current one
+      val systemPrompt = state.systemPrompt.getOrElse(completeSystemPrompt)
+      
+      // Initialize the agent with the first message (should be "Start adventure")
+      val firstMessage = messages.headOption match {
+        case Some(UserMessage(content)) => content
+        case _ => "Start adventure"  // Fallback
       }
-    }
-    
-    // Initialize the agent with the restored conversation
-    if (messages.nonEmpty) {
+      
       currentState = agent.initialize(
-        messages.head.content,
+        firstMessage,
         toolRegistry,
-        systemPromptAddition = Some(gamePrompt)
+        systemPromptAddition = Some(systemPrompt)
       )
       
-      // Add the rest of the messages to restore conversation context
+      // Add all the remaining messages to fully restore the conversation
       messages.tail.foreach { msg =>
         currentState = currentState.addMessage(msg)
       }
+      
+      logger.info(s"[$sessionId] Game state restored with ${messages.size} agent messages")
+    } else if (state.conversationHistory.nonEmpty) {
+      // Fallback to old restoration method for backwards compatibility
+      val messages = state.conversationHistory.flatMap { entry =>
+        entry.role match {
+          case "user" => Some(UserMessage(content = entry.content))
+          case "assistant" => Some(AssistantMessage(contentOpt = Some(entry.content)))
+          case _ => None
+        }
+      }
+      
+      if (messages.nonEmpty) {
+        currentState = agent.initialize(
+          messages.head.content,
+          toolRegistry,
+          systemPromptAddition = Some(gamePrompt)
+        )
+        
+        messages.tail.foreach { msg =>
+          currentState = currentState.addMessage(msg)
+        }
+      }
+      
+      logger.info(s"[$sessionId] Game state restored (legacy) with ${conversationHistory.size} conversation entries")
     } else {
-      // If no conversation history, initialize normally
+      // No history to restore, initialize normally
       initialize()
     }
-    
-    logger.info(s"[$sessionId] Game state restored with ${conversationHistory.size} conversation entries")
   }
   
   // Add conversation tracking to processCommand

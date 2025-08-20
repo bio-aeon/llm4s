@@ -39,6 +39,8 @@ export class StreamingService {
     imageGenerationEnabled: boolean,
     callbacks: StreamingCallbacks
   ): Promise<void> {
+    console.log(`[StreamingService] Starting stream for session ${sessionId}, command: "${command}"`);
+    
     // Clean up any existing stream
     this.close();
     
@@ -51,6 +53,8 @@ export class StreamingService {
       imageGenerationEnabled
     });
     
+    console.log(`[StreamingService] Sending POST to /api/game/stream`);
+    
     try {
       const response = await fetch('/api/game/stream', {
         method: 'POST',
@@ -61,6 +65,8 @@ export class StreamingService {
         signal: this.abortController.signal
       });
       
+      console.log(`[StreamingService] Response status: ${response.status}`);
+      
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
@@ -70,7 +76,9 @@ export class StreamingService {
         throw new Error('No response body');
       }
       
+      console.log(`[StreamingService] Got reader, starting to process stream`);
       await this.processStream(reader, callbacks);
+      console.log(`[StreamingService] Stream processing completed`);
       
     } catch (error) {
       if (error instanceof Error) {
@@ -92,17 +100,24 @@ export class StreamingService {
     callbacks: StreamingCallbacks
   ): Promise<void> {
     let buffer = '';
+    let chunkCount = 0;
+    
+    console.log(`[StreamingService] Starting to read stream`);
     
     try {
       while (true) {
         const { done, value } = await reader.read();
         
         if (done) {
+          console.log(`[StreamingService] Stream done after ${chunkCount} chunks`);
           break;
         }
         
+        chunkCount++;
         // Decode the chunk and add to buffer
-        buffer += this.decoder.decode(value, { stream: true });
+        const decoded = this.decoder.decode(value, { stream: true });
+        console.log(`[StreamingService] Chunk ${chunkCount}: ${decoded.length} chars`);
+        buffer += decoded;
         
         // Process complete SSE events in the buffer
         const lines = buffer.split('\n');
@@ -114,10 +129,13 @@ export class StreamingService {
         for (const line of lines) {
           if (line.startsWith('event: ')) {
             currentEvent = line.substring(7).trim();
+            console.log(`[StreamingService] Found event: ${currentEvent}`);
           } else if (line.startsWith('data: ')) {
             currentData = line.substring(6);
+            console.log(`[StreamingService] Found data for event ${currentEvent}, length: ${currentData.length}`);
           } else if (line === '' && currentEvent && currentData) {
             // Empty line marks end of event
+            console.log(`[StreamingService] Processing complete event: ${currentEvent}`);
             this.handleSSEEvent(currentEvent, currentData, callbacks);
             currentEvent = '';
             currentData = '';
@@ -142,6 +160,8 @@ export class StreamingService {
     data: string,
     callbacks: StreamingCallbacks
   ): void {
+    console.log(`[StreamingService] Handling SSE event: ${eventType}, data length: ${data.length}`);
+    
     try {
       const parsedData = JSON.parse(data);
       
@@ -149,12 +169,14 @@ export class StreamingService {
         case 'chunk':
           // Text chunk to display progressively
           if (parsedData.text) {
+            console.log(`[StreamingService] Text chunk: "${parsedData.text.substring(0, 50)}..."`);
             callbacks.onChunk(parsedData.text);
           }
           break;
           
         case 'complete':
           // Streaming complete, with final metadata
+          console.log(`[StreamingService] Handling complete event:`, parsedData);
           callbacks.onComplete(parsedData as CompleteResponse);
           break;
           

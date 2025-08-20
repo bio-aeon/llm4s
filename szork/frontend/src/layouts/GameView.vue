@@ -635,6 +635,8 @@ export default defineComponent({
       const command = userInput.value.trim();
       if (!command || !sessionId.value) return;
       
+      log(`[${sessionId.value}] Sending streaming command: "${command}"`);
+      
       // Add user message
       messages.value.push({
         text: `> ${command}`,
@@ -652,6 +654,7 @@ export default defineComponent({
       };
       messages.value.push(streamingMessage);
       const messageIdx = messages.value.length - 1;
+      log(`[${sessionId.value}] Created streaming message at index ${messageIdx}`);
       
       try {
         loading.value = true;
@@ -659,9 +662,11 @@ export default defineComponent({
         
         // Initialize streaming service if needed
         if (!streamingService.value) {
+          log(`[${sessionId.value}] Initializing streaming service`);
           streamingService.value = new StreamingService();
         }
         
+        log(`[${sessionId.value}] Starting stream command...`);
         // Start streaming
         await streamingService.value.streamCommand(
           sessionId.value,
@@ -669,6 +674,7 @@ export default defineComponent({
           imageGenerationEnabled.value,
           {
             onChunk: (text: string) => {
+              log(`[${sessionId.value}] Received chunk: "${text.substring(0, 50)}..."`);
               // Append text to the streaming message
               streamingMessage.text += text;
               // Scroll to show new text
