@@ -56,7 +56,7 @@ object StableDiffusionPayload {
  */
 class StableDiffusionClient(config: StableDiffusionConfig) extends ImageGenerationClient {
 
-  private val logger = LoggerFactory.getLogger(getClass)
+  private val logger = LoggerFactory.getLogger("StableDiffusionClient")
 
   override def generateImage(
     prompt: String,
