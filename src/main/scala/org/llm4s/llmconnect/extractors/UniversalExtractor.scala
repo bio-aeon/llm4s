@@ -5,11 +5,13 @@ import org.llm4s.llmconnect.model.ExtractorError
 import org.slf4j.LoggerFactory
 
 import java.io.File
-import java.nio.file.Files
 import java.nio.charset.StandardCharsets
+import java.nio.file.Files
 import scala.io.Source
-import scala.util.{ Try, Success, Failure, Using }
+import scala.jdk.CollectionConverters._
+import scala.util.{ Failure, Success, Try, Using }
 
+<<<<<<< HEAD
 import org.apache.tika.Tika
 import org.apache.poi.xwpf.usermodel.XWPFDocument
 import org.apache.pdfbox.Loader
@@ -21,13 +23,24 @@ import java.nio.file.Files
 import java.io.File
 import org.apache.tika.Tika
 import org.apache.poi.xwpf.usermodel.XWPFDocument
+||||||| parent of 1ad38cf (comments are cleared)
+import org.apache.tika.Tika
+import org.apache.poi.xwpf.usermodel.XWPFDocument
+=======
+>>>>>>> 1ad38cf (comments are cleared)
 import org.apache.pdfbox.pdmodel.PDDocument
 import org.apache.pdfbox.text.PDFTextStripper
+<<<<<<< HEAD
 <<<<<<< HEAD
 import scala.io.Source
 >>>>>>> ad62d21 (Add dynamic chunking and logging to embedding pipeline)
 ||||||| parent of 8bd3f68 (update: embedx-v2 on multimedia data)
 =======
+||||||| parent of 1ad38cf (comments are cleared)
+=======
+import org.apache.poi.xwpf.usermodel.XWPFDocument
+import org.apache.tika.Tika
+>>>>>>> 1ad38cf (comments are cleared)
 import javax.imageio.ImageIO
 import java.awt.image.BufferedImage
 >>>>>>> 8bd3f68 (update: embedx-v2 on multimedia data)
@@ -38,6 +51,10 @@ object UniversalExtractor {
   private val logger = LoggerFactory.getLogger(getClass)
   private val tika   = new Tika()
 
+  // ----- MIME constants (single source of truth) -----
+  private val PdfMime  = "application/pdf"
+  private val DocxMime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
   // ----- ADT for multimedia extraction -----
   sealed trait Extracted
   final case class TextContent(text: String)                            extends Extracted
@@ -45,14 +62,25 @@ object UniversalExtractor {
   final case class AudioContent(samples: Array[Float], sampleRate: Int) extends Extracted
   final case class VideoContent(frames: Seq[BufferedImage], fps: Int)   extends Extracted
 
-  // ================================= TEXT-ONLY API (unchanged) =================================
+  // ----- Path normalization (quotes/whitespace) -----
+  private def normalizeInputPath(raw: String): File = {
+    val s = raw.trim
+      .stripPrefix("\"")
+      .stripSuffix("\"")
+      .stripPrefix("'")
+      .stripSuffix("'")
+    new File(s).getAbsoluteFile
+  }
+
+  // ================================= TEXT-ONLY API =================================
   def extract(inputPath: String): Either[ExtractorError, String] = {
-    val file = new File(inputPath)
+    val file = normalizeInputPath(inputPath)
     if (!file.exists() || !file.isFile) {
       val error = ExtractorError(
-        message = s"File not found or invalid: $inputPath",
+        message =
+          s"File not found or invalid: ${file.getPath} (exists=${file.exists()}, isFile=${file.isFile}, isDir=${file.isDirectory})",
         `type` = "FileNotFound",
-        path = Some(inputPath)
+        path = Some(file.getPath)
       )
       logger.error(s"[FileNotFound] ${error.message}")
       return Left(error)
@@ -89,6 +117,7 @@ object UniversalExtractor {
     }
 
 <<<<<<< HEAD
+<<<<<<< HEAD
     val tika     = new Tika()
     val mimeType = tika.detect(file)
 <<<<<<< HEAD
@@ -98,35 +127,48 @@ object UniversalExtractor {
     val mimeType = tika.detect(file)
     logger.info(s"\nDetected MIME type: $mimeType")
 =======
+||||||| parent of 1ad38cf (comments are cleared)
+=======
+    // Breadcrumbs at debug level to avoid noisy logs
+    logger.debug(s"Canonical path: ${Try(file.getCanonicalPath).getOrElse(file.getAbsolutePath)}")
+
+>>>>>>> 1ad38cf (comments are cleared)
     val mimeType = Try(tika.detect(file)).getOrElse("application/octet-stream")
+<<<<<<< HEAD
     logger.info(s"Detected MIME type: $mimeType")
 >>>>>>> 8bd3f68 (update: embedx-v2 on multimedia data)
+||||||| parent of 1ad38cf (comments are cleared)
+    logger.info(s"Detected MIME type: $mimeType")
+=======
+    logger.debug(s"Detected MIME type: $mimeType")
+>>>>>>> 1ad38cf (comments are cleared)
 
     mimeType match {
-      case "application/pdf" =>
+      case PdfMime =>
         extractPDF(file) match {
           case Success(text) => Right(text)
           case Failure(ex) =>
-            val err = ExtractorError(ex.getMessage, "PDF", Some(inputPath))
+            val err = ExtractorError(ex.getMessage, "PDF", Some(file.getPath))
             logger.error(s"[PDF ExtractorError] ${err.message}")
             Left(err)
         }
 
-      case "application/vnd.openxmlformats-officedocument.wordprocessingml.document" =>
+      case DocxMime =>
         extractDocx(file) match {
           case Success(text) => Right(text)
           case Failure(ex) =>
-            val err = ExtractorError(ex.getMessage, "DOCX", Some(inputPath))
+            val err = ExtractorError(ex.getMessage, "DOCX", Some(file.getPath))
             logger.error(s"[DOCX ExtractorError] ${err.message}")
             Left(err)
         }
 
-      case "text/plain" =>
+      // Handle any text/* consistently (not only text/plain)
+      case mt if mt.startsWith("text/") =>
         extractText(file) match {
           case Success(text) => Right(text)
           case Failure(ex) =>
-            val err = ExtractorError(ex.getMessage, "PlainText", Some(inputPath))
-            logger.error(s"[PlainText ExtractorError] ${err.message}")
+            val err = ExtractorError(ex.getMessage, "Text", Some(file.getPath))
+            logger.error(s"[Text ExtractorError] ${err.message}")
             Left(err)
         }
 
@@ -134,7 +176,7 @@ object UniversalExtractor {
         val error = ExtractorError(
           message = s"Unsupported file type for text extraction: $other",
           `type` = "UnsupportedType",
-          path = Some(inputPath)
+          path = Some(file.getPath)
         )
         logger.warn(s"[UnsupportedType] ${error.message}")
         Left(error)
@@ -143,22 +185,25 @@ object UniversalExtractor {
 
   // ================================= MULTIMEDIA API =================================
   def extractAny(inputPath: String): Either[ExtractorError, Extracted] = {
-    val file = new File(inputPath)
+    val file = normalizeInputPath(inputPath)
     if (!file.exists() || !file.isFile) {
       val err = ExtractorError(
-        message = s"File not found or invalid: $inputPath",
+        message =
+          s"File not found or invalid: ${file.getPath} (exists=${file.exists()}, isFile=${file.isFile}, isDir=${file.isDirectory})",
         `type` = "FileNotFound",
-        path = Some(inputPath)
+        path = Some(file.getPath)
       )
       logger.error(s"[FileNotFound] ${err.message}")
       return Left(err)
     }
 
+    logger.debug(s"Canonical path: ${Try(file.getCanonicalPath).getOrElse(file.getAbsolutePath)}")
+
     val mime = Try(tika.detect(file)).getOrElse("application/octet-stream")
-    logger.info(s"[UniversalExtractor] MIME detected: $mime")
+    logger.debug(s"[UniversalExtractor] MIME detected: $mime")
 
     if (isTextLike(mime)) {
-      extract(inputPath).map(TextContent.apply)
+      extract(file.getPath).map(TextContent.apply)
     } else if (mime.startsWith("image/")) {
       extractImage(file)
     } else if (mime.startsWith("audio/")) {
@@ -171,10 +216,9 @@ object UniversalExtractor {
   }
 
   // ----- helpers -----
-  private def isTextLike(mime: String): Boolean =
-    mime.startsWith("text/") ||
-      mime == "application/pdf" ||
-      mime.endsWith("wordprocessingml.document")
+  // Expose for reuse by UniversalEncoder; keep scope tight to the top-level project package.
+  private[llm4s] def isTextLike(mime: String): Boolean =
+    mime.startsWith("text/") || mime == PdfMime || mime == DocxMime
 
   private def extractPDF(file: File): Try[String] = Try {
 <<<<<<< HEAD
@@ -197,9 +241,16 @@ object UniversalExtractor {
   }
 
   private def extractDocx(file: File): Try[String] = Try {
-    val document = new XWPFDocument(Files.newInputStream(file.toPath))
-    try document.getParagraphs.toArray.map(_.toString).mkString("\n")
-    finally document.close()
+    Using.resource(Files.newInputStream(file.toPath)) { in =>
+      val document = new XWPFDocument(in)
+      try {
+        val pText = document.getParagraphs.asScala.map(_.getText).mkString("\n")
+        val tText = document.getTables.asScala
+          .flatMap(_.getRows.asScala.flatMap(_.getTableCells.asScala.map(_.getText)))
+          .mkString("\n")
+        List(pText, tText).filter(_.nonEmpty).mkString("\n")
+      } finally document.close()
+    }
   }
 
   private def extractText(file: File): Try[String] = Try {

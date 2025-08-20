@@ -1,6 +1,3 @@
-// ================================================================================================================
-// M:\GSoC 2025\llm4s\src\main\scala\org\llm4s\llmconnect\model\EmbeddingRequest.scala
-// ================================================================================================================
 package org.llm4s.llmconnect.model
 
 import org.llm4s.llmconnect.config.EmbeddingModelConfig

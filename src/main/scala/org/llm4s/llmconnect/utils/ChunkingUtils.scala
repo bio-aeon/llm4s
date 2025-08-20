@@ -1,6 +1,3 @@
-// ================================================================================================================
-// M:\GSoC 2025\llm4s\src\main\scala\org\llm4s\llmconnect\utils\ChunkingUtils.scala
-// ================================================================================================================
 package org.llm4s.llmconnect.utils
 
 import scala.collection.mutable.ListBuffer

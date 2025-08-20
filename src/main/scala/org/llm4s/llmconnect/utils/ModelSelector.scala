@@ -1,6 +1,3 @@
-// ================================================================================================================
-// M:\GSoC 2025\llm4s\src\main\scala\org\llm4s\llmconnect\utils\ModelSelector.scala
-// ================================================================================================================
 package org.llm4s.llmconnect.utils
 
 import org.llm4s.llmconnect.config.{ EmbeddingConfig, EmbeddingModelConfig, ModelDimensionRegistry }

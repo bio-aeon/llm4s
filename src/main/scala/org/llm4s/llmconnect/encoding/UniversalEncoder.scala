@@ -24,7 +24,8 @@ object UniversalEncoder {
     val mime = Try(tika.detect(f)).getOrElse("application/octet-stream")
     logger.info(s"[UniversalEncoder] MIME detected: $mime")
 
-    if (isTextLike(mime)) encodeTextFile(f, mime, client)
+    // Reuse canonical MIME logic from UniversalExtractor (no duplication).
+    if (UniversalExtractor.isTextLike(mime)) encodeTextFile(f, mime, client)
     else if (mime.startsWith("image/")) encodeImageFile(f, mime)
     else if (mime.startsWith("audio/")) encodeAudioFile(f, mime)
     else if (mime.startsWith("video/")) encodeVideoFile(f, mime)
@@ -98,11 +99,6 @@ object UniversalEncoder {
   }
 
   // ---------------- helpers ----------------
-  private def isTextLike(mime: String): Boolean =
-    mime.startsWith("text/") ||
-      mime == "application/pdf" ||
-      mime.endsWith("wordprocessingml.document")
-
   private def l2(v: Array[Float]): Array[Float] = {
     val n = math.sqrt(v.foldLeft(0.0)((s, x) => s + x * x)).toFloat
     if (n <= 1e-6f) v else v.map(_ / n)

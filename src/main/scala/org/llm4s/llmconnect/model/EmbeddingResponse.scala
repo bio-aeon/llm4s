@@ -1,4 +1,3 @@
-// M:\GSoC 2025\llm4s\src\main\scala\org\llm4s\llmconnect\model\EmbeddingResponse.scala
 package org.llm4s.llmconnect.model
 
 /**
