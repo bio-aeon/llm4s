@@ -31,7 +31,7 @@ import scala.util.Try
  */
 class HuggingFaceClient(config: HuggingFaceConfig, httpClient: BaseHttpClient) extends ImageGenerationClient {
 
-  private val logger = org.slf4j.LoggerFactory.getLogger(getClass)
+  private val logger = org.slf4j.LoggerFactory.getLogger(getClass.getSimpleName)
 
   /**
    * Generate a single image from a text prompt using HuggingFace Inference API.

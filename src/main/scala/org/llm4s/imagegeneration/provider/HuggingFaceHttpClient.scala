@@ -8,7 +8,7 @@ trait BaseHttpClient {
 }
 
 class HttpClient(url: String, headers: Map[String, String], timeout: Int) extends BaseHttpClient {
-  private val logger = org.slf4j.LoggerFactory.getLogger(getClass)
+  private val logger = org.slf4j.LoggerFactory.getLogger(getClass.getSimpleName)
 
   override def post(payload: String): Response = {
     logger.debug("Making request to: {}", url)

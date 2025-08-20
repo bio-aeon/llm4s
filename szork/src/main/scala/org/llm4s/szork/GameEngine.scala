@@ -9,7 +9,7 @@ import org.slf4j.LoggerFactory
 import ujson._
 
 class GameEngine(sessionId: String = "", theme: Option[String] = None, artStyle: Option[String] = None, adventureOutline: Option[AdventureOutline] = None) {
-  private val logger = LoggerFactory.getLogger("GameEngine")
+  private val logger = LoggerFactory.getLogger(getClass.getSimpleName)
   
   private val themeDescription = theme.getOrElse("classic fantasy dungeon adventure")
   private val artStyleDescription = artStyle match {

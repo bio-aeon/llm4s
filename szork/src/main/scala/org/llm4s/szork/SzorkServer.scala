@@ -35,7 +35,7 @@ case class CommandResponse(response: String, sessionId: String)
 
 object SzorkServer extends cask.Main with cask.Routes {
   
-  private val logger = LoggerFactory.getLogger("SzorkServer")
+  private val logger = LoggerFactory.getLogger(getClass.getSimpleName)
   
   // Load and validate configuration
   private val config = SzorkConfig.instance

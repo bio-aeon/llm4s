@@ -13,7 +13,7 @@ import scala.util.{ Failure, Success, Try }
  */
 object WorkspaceTools {
 
-  private val logger = org.slf4j.LoggerFactory.getLogger(getClass)
+  private val logger = org.slf4j.LoggerFactory.getLogger(getClass.getSimpleName)
 
   /**
    * Create an explore files tool that lists files and directories.

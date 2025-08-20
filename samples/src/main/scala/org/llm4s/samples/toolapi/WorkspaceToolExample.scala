@@ -18,7 +18,7 @@ import ujson._
  * Example demonstrating how to use workspace tools with different LLM models
  */
 object WorkspaceToolExample {
-  private val logger = LoggerFactory.getLogger(getClass)
+  private val logger = LoggerFactory.getLogger(getClass.getSimpleName)
 
   // Define result types for workspace tools
   case class ExploreResult(files: List[String], directories: List[String])

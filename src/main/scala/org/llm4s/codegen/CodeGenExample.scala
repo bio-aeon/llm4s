@@ -6,7 +6,7 @@ import org.slf4j.LoggerFactory
  * Example demonstrating how to use the CodeWorker to perform code tasks.
  */
 object CodeGenExample {
-  private val logger = LoggerFactory.getLogger(getClass)
+  private val logger = LoggerFactory.getLogger(getClass.getSimpleName)
 
   def main(args: Array[String]): Unit = {
     // Sample workspace directory - user's home directory or current directory

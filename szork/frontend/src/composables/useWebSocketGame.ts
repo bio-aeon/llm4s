@@ -281,12 +281,12 @@ export function useWebSocketGame() {
   /**
    * Start a new game
    */
-  const startNewGame = async (theme?: string, artStyle?: string, imageGeneration = true) => {
+  const startNewGame = async (theme?: string, artStyle?: string, imageGeneration = true, adventureOutline?: any) => {
     if (!wsClient.value?.connected) {
       await connect();
     }
     
-    wsClient.value?.newGame(theme, artStyle, imageGeneration);
+    wsClient.value?.newGame(theme, artStyle, imageGeneration, adventureOutline);
   };
   
   /**

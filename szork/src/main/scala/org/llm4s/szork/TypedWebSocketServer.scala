@@ -19,7 +19,7 @@ class TypedWebSocketServer(
   sessionManager: SessionManager
 )(implicit ec: ExecutionContext) extends WebSocketServer(new InetSocketAddress(port)) {
   
-  private val logger = LoggerFactory.getLogger("TypedWebSocketServer")
+  private val logger = LoggerFactory.getLogger(getClass.getSimpleName)
   
   // Map WebSocket connections to session IDs
   private val connectionSessions = TrieMap[WebSocket, String]()
@@ -201,12 +201,27 @@ class TypedWebSocketServer(
     val themeObj = request.theme.map(t => GameTheme(t, t, t))
     val artStyleObj = request.artStyle.map(a => ArtStyle(a, a))
     
+    // Parse adventure outline from JSON if provided
+    val adventureOutline = request.adventureOutline.flatMap { json =>
+      try {
+        Some(parseAdventureOutlineFromJson(json))
+      } catch {
+        case e: Exception =>
+          logger.error("Failed to parse adventure outline from request", e)
+          None
+      }
+    }
+    
+    if (adventureOutline.isDefined) {
+      logger.info(s"Using adventure outline: ${adventureOutline.get.title}")
+    }
+    
     // Create GameEngine with proper parameters
     val engine = new GameEngine(
       sessionId = sessionId,
       theme = request.theme,
       artStyle = request.artStyle,
-      adventureOutline = None  // TODO: Pass adventure outline if available from client
+      adventureOutline = adventureOutline
     )
     
     val session = GameSession(
@@ -608,6 +623,40 @@ class TypedWebSocketServer(
       )),
       items = scene.items,
       npcs = scene.npcs
+    )
+  }
+  
+  // Helper function to parse AdventureOutline from JSON
+  private def parseAdventureOutlineFromJson(json: ujson.Value): AdventureOutline = {
+    AdventureOutline(
+      title = json("title").str,
+      tagline = json.obj.get("tagline").flatMap {
+        case ujson.Null => None
+        case s => Some(s.str)
+      },
+      mainQuest = json("mainQuest").str,
+      subQuests = json("subQuests").arr.map(_.str).toList,
+      keyLocations = json("keyLocations").arr.map(loc => LocationOutline(
+        id = loc("id").str,
+        name = loc("name").str,
+        description = loc("description").str,
+        significance = loc("significance").str
+      )).toList,
+      importantItems = json("importantItems").arr.map(item => ItemOutline(
+        name = item("name").str,
+        description = item("description").str,
+        purpose = item("purpose").str
+      )).toList,
+      keyCharacters = json("keyCharacters").arr.map(char => CharacterOutline(
+        name = char("name").str,
+        role = char("role").str,
+        description = char("description").str
+      )).toList,
+      adventureArc = json("adventureArc").str,
+      specialMechanics = json.obj.get("specialMechanics").flatMap {
+        case ujson.Null => None
+        case s => Some(s.str)
+      }
     )
   }
 }

@@ -57,7 +57,7 @@ case class GameMetadata(
 )
 
 object GamePersistence {
-  private val logger = LoggerFactory.getLogger("GamePersistence")
+  private val logger = LoggerFactory.getLogger(getClass.getSimpleName)
   private val SAVE_DIR = "szork-saves"
   
   // Ensure save directory exists

@@ -21,7 +21,7 @@ import scala.util.{ Failure, Success, Try }
  */
 object RunnerMain extends cask.MainRoutes {
 
-  private val logger                        = LoggerFactory.getLogger(getClass)
+  private val logger                        = LoggerFactory.getLogger(getClass.getSimpleName)
   private val executor                      = Executors.newCachedThreadPool()
   implicit private val ec: ExecutionContext = ExecutionContext.fromExecutor(executor)
 

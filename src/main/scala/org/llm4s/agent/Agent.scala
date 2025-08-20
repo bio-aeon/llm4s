@@ -13,7 +13,7 @@ import scala.util.{ Failure, Success, Try }
  * Basic Agent implementation.
  */
 class Agent(client: LLMClient) {
-  private val logger = LoggerFactory.getLogger(getClass)
+  private val logger = LoggerFactory.getLogger(getClass.getSimpleName)
 
   /**
    * Initializes a new agent state with the given query

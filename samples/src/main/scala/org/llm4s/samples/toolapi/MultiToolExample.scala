@@ -8,7 +8,7 @@ import upickle.default._
  * Example demonstrating multiple tools with different parameter types
  */
 object MultiToolExample {
-  private val logger = LoggerFactory.getLogger(getClass)
+  private val logger = LoggerFactory.getLogger(getClass.getSimpleName)
   
   // Result types
   case class CalculationResult(result: Double)

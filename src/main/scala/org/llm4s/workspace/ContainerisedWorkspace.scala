@@ -24,7 +24,7 @@ import scala.util.{ Failure, Success, Try }
  * - Eliminating thread pool blocking during long commands
  */
 class ContainerisedWorkspace(val workspaceDir: String) extends WorkspaceAgentInterface {
-  private val logger        = LoggerFactory.getLogger(getClass)
+  private val logger        = LoggerFactory.getLogger(getClass.getSimpleName)
   private val containerName = s"workspace-runner-${java.util.UUID.randomUUID().toString}"
   private val port          = 8080
   private val wsUrl         = s"ws://localhost:$port/ws"

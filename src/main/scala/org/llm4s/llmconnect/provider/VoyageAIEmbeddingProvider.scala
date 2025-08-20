@@ -9,7 +9,7 @@ import org.slf4j.LoggerFactory
 object VoyageAIEmbeddingProvider extends EmbeddingProvider {
 
   private val backend = DefaultSyncBackend()
-  private val logger  = LoggerFactory.getLogger(getClass)
+  private val logger  = LoggerFactory.getLogger(getClass.getSimpleName)
 
   override def embed(request: EmbeddingRequest): Either[EmbeddingError, EmbeddingResponse] = {
     val cfg   = EmbeddingConfig.voyage

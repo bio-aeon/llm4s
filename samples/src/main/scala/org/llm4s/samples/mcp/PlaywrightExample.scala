@@ -27,7 +27,7 @@ import scala.util.Try
  */
 
 object PlaywrightExample {
-  private val logger = LoggerFactory.getLogger(getClass)
+  private val logger = LoggerFactory.getLogger(getClass.getSimpleName)
 
   private def logNoToolsError(): Unit = {
     logger.error(

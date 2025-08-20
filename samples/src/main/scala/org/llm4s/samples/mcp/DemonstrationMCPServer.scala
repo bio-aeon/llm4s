@@ -25,7 +25,7 @@ import scala.collection.mutable
  * Run: sbt "samples/runMain org.llm4s.samples.mcp.DemonstrationMCPServer"
  */
 object DemonstrationMCPServer {
-  private val logger = LoggerFactory.getLogger(getClass)
+  private val logger = LoggerFactory.getLogger(getClass.getSimpleName)
 
   def main(args: Array[String]): Unit = {
     val server = HttpServer.create(new InetSocketAddress(8080), 0)

@@ -16,7 +16,7 @@ import org.llm4s.error.ValidationError
  * @param sourceDirectory The directory containing the codebase to work with
  */
 class CodeWorker(sourceDirectory: String) {
-  private val logger    = LoggerFactory.getLogger(getClass)
+  private val logger    = LoggerFactory.getLogger(getClass.getSimpleName)
   private val workspace = new ContainerisedWorkspace(sourceDirectory)
   private val client    = LLM.client()
   private val agent     = new Agent(client)

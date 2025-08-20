@@ -7,7 +7,7 @@ import org.slf4j.LoggerFactory
  * Handles incomplete JSON by attempting to close quotes and braces.
  */
 class StreamingJsonParser {
-  private val logger = LoggerFactory.getLogger(getClass)
+  private val logger = LoggerFactory.getLogger(getClass.getSimpleName)
   
   private val accumulatedJson = new StringBuilder()
   private var lastExtractedPosition = 0

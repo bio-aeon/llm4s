@@ -23,7 +23,7 @@ class EnhancedLangfuseTracing(
   version: String = EnvLoader.getOrElse("LANGFUSE_VERSION", "1.0.0")
 ) extends EnhancedTracing {
 
-  private val logger         = LoggerFactory.getLogger(getClass)
+  private val logger         = LoggerFactory.getLogger(getClass.getSimpleName)
   private def nowIso: String = DateTimeFormatter.ISO_INSTANT.format(Instant.now())
   private def uuid: String   = UUID.randomUUID().toString
 

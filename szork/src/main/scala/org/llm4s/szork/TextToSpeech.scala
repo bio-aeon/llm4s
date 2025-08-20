@@ -6,7 +6,7 @@ import org.llm4s.config.EnvLoader
 import java.util.Base64
 
 class TextToSpeech {
-  private val logger = LoggerFactory.getLogger("TTS")
+  private val logger = LoggerFactory.getLogger(getClass.getSimpleName)
   private val apiKey = EnvLoader.get("OPENAI_API_KEY").getOrElse(
     throw new IllegalStateException("OPENAI_API_KEY not found in environment")
   )

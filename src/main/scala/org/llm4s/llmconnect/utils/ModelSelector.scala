@@ -5,7 +5,7 @@ import org.slf4j.LoggerFactory
 
 object ModelSelector {
 
-  private val logger = LoggerFactory.getLogger(getClass)
+  private val logger = LoggerFactory.getLogger(getClass.getSimpleName)
 
   def selectModel(): EmbeddingModelConfig = {
     val provider = EmbeddingConfig.activeProvider.toLowerCase

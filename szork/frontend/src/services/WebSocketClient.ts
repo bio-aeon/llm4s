@@ -300,12 +300,13 @@ export class WebSocketClient {
   /**
    * Start a new game
    */
-  newGame(theme?: string, artStyle?: string, imageGeneration = true): void {
+  newGame(theme?: string, artStyle?: string, imageGeneration = true, adventureOutline?: any): void {
     this.send({
       type: 'newGame',
       theme,
       artStyle,
-      imageGeneration
+      imageGeneration,
+      adventureOutline
     });
   }
   

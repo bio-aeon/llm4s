@@ -16,7 +16,7 @@ import scala.concurrent.duration._
  * Then run: sbt "samples/runMain org.llm4s.samples.mcp.MCPToolExample"
  */
 object MCPToolExample {
-  private val logger = LoggerFactory.getLogger(getClass)
+  private val logger = LoggerFactory.getLogger(getClass.getSimpleName)
   
   def main(args: Array[String]): Unit = {
     logger.info("🚀 MCP Tool Example - Basic MCP Tool Usage")

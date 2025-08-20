@@ -8,7 +8,7 @@ import org.slf4j.LoggerFactory
  * Demonstrates the basic usage of the Workspace class
  */
 object ContainerisedWorkspaceDemo extends App {
-  private val logger = LoggerFactory.getLogger(getClass)
+  private val logger = LoggerFactory.getLogger(getClass.getSimpleName)
 
   // Sample workspace directory on the host machine
   val workspaceDir = System.getProperty("user.home") + "/workspace-demo"

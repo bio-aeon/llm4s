@@ -11,7 +11,7 @@ import org.slf4j.LoggerFactory
  * Only streams user-facing text, not tool calls or internal operations.
  */
 class StreamingAgent(client: LLMClient) extends Agent(client) {
-  private val logger = LoggerFactory.getLogger(getClass)
+  private val logger = LoggerFactory.getLogger(getClass.getSimpleName)
   
   /**
    * Run a single step of the agent's reasoning process with streaming support.

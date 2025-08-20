@@ -6,7 +6,7 @@ import org.llm4s.llmconnect.provider.{ EmbeddingProvider, OpenAIEmbeddingProvide
 import org.slf4j.LoggerFactory
 
 class EmbeddingClient(provider: EmbeddingProvider) {
-  private val logger = LoggerFactory.getLogger(getClass)
+  private val logger = LoggerFactory.getLogger(getClass.getSimpleName)
 
   def embed(request: EmbeddingRequest): Either[EmbeddingError, EmbeddingResponse] = {
     logger.info(s"[EmbeddingClient] Embedding input with model ${request.model.name}")
@@ -15,7 +15,7 @@ class EmbeddingClient(provider: EmbeddingProvider) {
 }
 
 object EmbeddingClient {
-  private val logger = LoggerFactory.getLogger(getClass)
+  private val logger = LoggerFactory.getLogger(getClass.getSimpleName)
 
   def fromConfig(): EmbeddingClient = {
     val providerName = EmbeddingConfig.activeProvider.toLowerCase

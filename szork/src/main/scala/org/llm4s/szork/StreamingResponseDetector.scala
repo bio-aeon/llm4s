@@ -9,7 +9,7 @@ import org.slf4j.LoggerFactory
  * agent operations like inventory management or scene parsing.
  */
 class StreamingResponseDetector {
-  private val logger = LoggerFactory.getLogger(getClass)
+  private val logger = LoggerFactory.getLogger(getClass.getSimpleName)
   
   sealed trait ResponseType
   case object UserText extends ResponseType

@@ -18,7 +18,7 @@ import scala.jdk.CollectionConverters._
 
 class AnthropicClient(config: AnthropicConfig) extends LLMClient {
 
-  private val logger = LoggerFactory.getLogger("AnthropicClient")
+  private val logger = LoggerFactory.getLogger(getClass.getSimpleName)
 
   // anthropic require a max tokens parameter
   // set a sensible default value.

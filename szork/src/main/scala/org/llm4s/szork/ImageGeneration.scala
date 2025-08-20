@@ -6,7 +6,7 @@ import org.llm4s.imagegeneration
 import org.llm4s.imagegeneration._
 
 class ImageGeneration {
-  private val logger = LoggerFactory.getLogger("ImageGen")
+  private val logger = LoggerFactory.getLogger(getClass.getSimpleName)
   private val config = SzorkConfig.instance
   
   // Configure image generation provider based on configuration

@@ -9,7 +9,7 @@ import org.slf4j.LoggerFactory
 
 object EmbeddingExample {
 
-  private val logger = LoggerFactory.getLogger(getClass)
+  private val logger = LoggerFactory.getLogger(getClass.getSimpleName)
 
   def main(args: Array[String]): Unit = {
     logger.info("Starting embedding example...")

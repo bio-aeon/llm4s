@@ -37,7 +37,7 @@ case class CharacterOutline(
 )
 
 object AdventureGenerator {
-  private val logger = LoggerFactory.getLogger("AdventureGenerator")
+  private val logger = LoggerFactory.getLogger(getClass.getSimpleName)
   
   def generateAdventureOutline(theme: String, artStyle: String): Either[String, AdventureOutline] = {
     val _ = artStyle // Acknowledge parameter (could be used for style-specific adventure elements)

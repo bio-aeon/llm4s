@@ -4,7 +4,7 @@ import io.github.cdimascio.dotenv.Dotenv
 import java.nio.file.{ Files, Paths }
 
 object EnvLoader {
-  private val logger = org.slf4j.LoggerFactory.getLogger(getClass)
+  private val logger = org.slf4j.LoggerFactory.getLogger(getClass.getSimpleName)
 
   private lazy val dotenv: Dotenv = {
     // Try to find .env file in multiple locations

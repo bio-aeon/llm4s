@@ -40,7 +40,7 @@ case class MCPSession(
 // Streamable HTTP transport implementation (2025-06-18 spec)
 class StreamableHTTPTransportImpl(url: String, override val name: String, timeout: Duration = 30.seconds)
     extends MCPTransportImpl {
-  private val logger                       = LoggerFactory.getLogger(getClass)
+  private val logger                       = LoggerFactory.getLogger(getClass.getSimpleName)
   private val requestId                    = new AtomicLong(0)
   private var mcpSessionId: Option[String] = None
 
@@ -277,7 +277,7 @@ class StreamableHTTPTransportImpl(url: String, override val name: String, timeou
 // SSE transport implementation using HTTP (2024-11-05 spec)
 class SSETransportImpl(url: String, override val name: String, timeout: Duration = 30.seconds)
     extends MCPTransportImpl {
-  private val logger                       = LoggerFactory.getLogger(getClass)
+  private val logger                       = LoggerFactory.getLogger(getClass.getSimpleName)
   private val requestId                    = new AtomicLong(0)
   private var mcpSessionId: Option[String] = None
   private val protocolVersion              = "2024-11-05"
@@ -452,7 +452,7 @@ class SSETransportImpl(url: String, override val name: String, timeout: Duration
 
 // Stdio transport implementation using subprocess communication with proper MCP protocol compliance
 class StdioTransportImpl(command: Seq[String], override val name: String) extends MCPTransportImpl {
-  private val logger                                       = LoggerFactory.getLogger(getClass)
+  private val logger                                       = LoggerFactory.getLogger(getClass.getSimpleName)
   private var process: Option[Process]                     = None
   private val requestId                                    = new AtomicLong(0)
   private var stdinWriter: Option[java.io.PrintWriter]     = None

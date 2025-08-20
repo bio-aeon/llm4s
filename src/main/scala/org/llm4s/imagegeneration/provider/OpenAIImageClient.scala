@@ -35,7 +35,7 @@ import java.time.Instant
  */
 class OpenAIImageClient(config: OpenAIConfig) extends ImageGenerationClient {
 
-  private val logger = LoggerFactory.getLogger(getClass)
+  private val logger = LoggerFactory.getLogger(getClass.getSimpleName)
   private val apiUrl = "https://api.openai.com/v1/images/generations"
 
   /**

@@ -16,7 +16,7 @@ import org.apache.pdfbox.text.PDFTextStripper
 
 object UniversalExtractor {
 
-  private val logger = LoggerFactory.getLogger(getClass)
+  private val logger = LoggerFactory.getLogger(getClass.getSimpleName)
 
   def extract(inputPath: String): Either[ExtractorError, String] = {
     val file = new File(inputPath)

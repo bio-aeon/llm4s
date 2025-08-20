@@ -9,7 +9,7 @@ import java.io.ByteArrayOutputStream
 import java.net.URI
 
 class MusicGeneration {
-  private val logger = LoggerFactory.getLogger("MusicGeneration")
+  private val logger = LoggerFactory.getLogger(getClass.getSimpleName)
   private val replicateApiKey = EnvLoader.get("REPLICATE_API_KEY").filter(key => 
     key.nonEmpty && !key.contains("YOUR_REPLICATE_API_KEY")
   )

@@ -10,7 +10,7 @@ import org.slf4j.LoggerFactory
  *   {"responseType": "fullScene", ...}
  */
 class StreamingTextParser {
-  private val logger = LoggerFactory.getLogger(getClass)
+  private val logger = LoggerFactory.getLogger(getClass.getSimpleName)
   
   private val accumulated = new StringBuilder()
   private var jsonStarted = false

@@ -23,7 +23,7 @@ case class CachedAsset(
 )
 
 object MediaCache {
-  private val logger = LoggerFactory.getLogger("MediaCache")
+  private val logger = LoggerFactory.getLogger(getClass.getSimpleName)
   private val CACHE_DIR = "szork-cache"
   
   // Ensure cache directory structure exists

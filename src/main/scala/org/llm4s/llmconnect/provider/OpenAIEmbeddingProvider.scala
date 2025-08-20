@@ -9,7 +9,7 @@ import org.slf4j.LoggerFactory
 object OpenAIEmbeddingProvider extends EmbeddingProvider {
 
   private val backend = DefaultSyncBackend()
-  private val logger  = LoggerFactory.getLogger(getClass)
+  private val logger  = LoggerFactory.getLogger(getClass.getSimpleName)
 
   override def embed(request: EmbeddingRequest): Either[EmbeddingError, EmbeddingResponse] = {
     val cfg   = EmbeddingConfig.openAI
@@ -23,9 +23,7 @@ object OpenAIEmbeddingProvider extends EmbeddingProvider {
 
     val url = uri"${cfg.baseUrl}/v1/embeddings"
 
-    logger.info(
-      s"\n[OpenAIEmbeddingProvider] Sending embedding request to $url with model=$model and ${input.size} input(s)"
-    )
+    logger.info(s"Sending embedding request to $url with model=$model and ${input.size} input(s)")
 
     val response = basicRequest
       .post(url)
@@ -47,16 +45,16 @@ object OpenAIEmbeddingProvider extends EmbeddingProvider {
             "count"    -> input.size.toString
           )
 
-          logger.info(s"\n[OpenAIEmbeddingProvider] Successfully received ${vectors.size} embeddings.")
+          logger.info(s"Successfully received ${vectors.size} embeddings.")
           Right(EmbeddingResponse(embeddings = vectors, metadata = metadata))
         } catch {
           case ex: Exception =>
-            logger.error(s"\n[OpenAIEmbeddingProvider] Failed to parse OpenAI response: ${ex.getMessage}")
+            logger.error(s"Failed to parse OpenAI response: ${ex.getMessage}")
             Left(EmbeddingError(None, s"Parsing error: ${ex.getMessage}", "openai"))
         }
 
       case Left(errorMsg) =>
-        logger.error(s"\n[OpenAIEmbeddingProvider] HTTP error from OpenAI: $errorMsg")
+        logger.error(s"HTTP error from OpenAI: $errorMsg")
         Left(EmbeddingError(None, errorMsg, "openai"))
     }
   }

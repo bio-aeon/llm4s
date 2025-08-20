@@ -14,7 +14,7 @@ import java.nio.file.Paths
  * - Save images to disk
  */
 object ImageGenerationExample {
-  private val logger = LoggerFactory.getLogger(getClass)
+  private val logger = LoggerFactory.getLogger(getClass.getSimpleName)
 
   def main(args: Array[String]): Unit = {
     logger.info("=== Image Generation API Demo ===")

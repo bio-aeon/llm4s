@@ -16,7 +16,7 @@ class MCPToolRegistry(
   cacheTTL: Duration = 10.minutes
 ) extends ToolRegistry(localTools) {
 
-  private val logger                                            = LoggerFactory.getLogger(getClass)
+  private val logger                                            = LoggerFactory.getLogger(getClass.getSimpleName)
   private val mcpClients: ConcurrentHashMap[String, MCPClient]  = new ConcurrentHashMap()
   private val toolCache: ConcurrentHashMap[String, CachedTools] = new ConcurrentHashMap()
 

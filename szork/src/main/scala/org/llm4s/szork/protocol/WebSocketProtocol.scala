@@ -1,6 +1,7 @@
 package org.llm4s.szork.protocol
 
 import upickle.default._
+import ujson.Value
 
 // Base trait for all WebSocket messages
 sealed trait WebSocketMessage
@@ -47,7 +48,8 @@ object ServerMessage {
 case class NewGameRequest(
   theme: Option[String] = None,
   artStyle: Option[String] = None,
-  imageGeneration: Boolean = true
+  imageGeneration: Boolean = true,
+  adventureOutline: Option[ujson.Value] = None  // Adventure outline as JSON
 ) extends ClientMessage
 object NewGameRequest {
   implicit val rw: ReadWriter[NewGameRequest] = macroRW

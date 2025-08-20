@@ -6,7 +6,7 @@ import org.slf4j.LoggerFactory
 import scala.collection.mutable
 
 object GameTools {
-  private val logger = LoggerFactory.getLogger("GameTools")
+  private val logger = LoggerFactory.getLogger(getClass.getSimpleName)
   
   // Mutable inventory storage (in a real app, this would be persisted)
   private val playerInventory = mutable.ListBuffer[String]()

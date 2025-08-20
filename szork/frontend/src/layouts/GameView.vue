@@ -462,7 +462,7 @@ export default defineComponent({
         // Start game via WebSocket
         const theme = adventureTheme.value?.name || adventureTheme.value;
         const artStyleValue = artStyle.value?.id || artStyle.value;
-        await wsStartNewGame(theme, artStyleValue, imageGenerationEnabled.value);
+        await wsStartNewGame(theme, artStyleValue, imageGenerationEnabled.value, adventureOutline.value);
         
         // Set the adventure title from the outline if available
         if (adventureOutline.value && adventureOutline.value.title) {
