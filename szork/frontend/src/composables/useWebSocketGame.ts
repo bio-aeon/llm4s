@@ -14,7 +14,7 @@ export interface GameMessage {
   text: string;
   isUser: boolean;
   timestamp: Date;
-  imageUrl?: string;
+  image?: string;  // Base64 image data (Vue component expects 'image', not 'imageUrl')
   imageLoading?: boolean;
   hasImage?: boolean;
   backgroundMusic?: string;
@@ -94,14 +94,22 @@ export function useWebSocketGame() {
       gameId.value = data.gameId;
       
       // Add initial message
-      messages.value.push({
+      const gameMessage: GameMessage = {
         text: data.text,
         isUser: false,
         timestamp: new Date(),
         scene: data.scene,
         messageIndex: data.messageIndex,
         hasImage: data.hasImage
-      });
+      };
+      
+      // Set imageLoading flag if image is being generated
+      if (data.hasImage) {
+        gameMessage.imageLoading = true;
+        log(`Message ${data.messageIndex} expects an image, setting loading flag`);
+      }
+      
+      messages.value.push(gameMessage);
       
       // Handle audio if present
       if (data.audio) {
@@ -153,14 +161,22 @@ export function useWebSocketGame() {
       const data = (msg as any).data;
       log('Command response:', data);
       
-      messages.value.push({
+      const gameMessage: GameMessage = {
         text: data.text,
         isUser: false,
         timestamp: new Date(),
         scene: data.scene,
         messageIndex: data.messageIndex,
         hasImage: data.hasImage
-      });
+      };
+      
+      // Set imageLoading flag if image is being generated
+      if (data.hasImage) {
+        gameMessage.imageLoading = true;
+        log(`Message ${data.messageIndex} expects an image, setting loading flag`);
+      }
+      
+      messages.value.push(gameMessage);
       
       if (data.audio) {
         playAudioNarration(data.audio);
@@ -201,6 +217,13 @@ export function useWebSocketGame() {
         currentStreamingMessage.value.scene = data.scene;
         currentStreamingMessage.value.messageIndex = data.messageIndex;
         currentStreamingMessage.value.hasImage = data.hasImage;
+        
+        // Set imageLoading flag if image is being generated
+        if (data.hasImage) {
+          currentStreamingMessage.value.imageLoading = true;
+          log(`Message ${data.messageIndex} expects an image, setting loading flag`);
+        }
+        
         currentStreamingMessage.value = null;
       }
       
@@ -229,8 +252,12 @@ export function useWebSocketGame() {
       
       const message = messages.value.find(m => m.messageIndex === data.messageIndex);
       if (message) {
-        message.imageUrl = `data:image/png;base64,${data.image}`;
+        // Vue component expects 'image' property, not 'imageUrl'
+        (message as any).image = data.image;
         message.imageLoading = false;
+        log(`Set image for message ${data.messageIndex} (${data.image.length} bytes)`);
+      } else {
+        log(`Warning: Could not find message with index ${data.messageIndex} to attach image`);
       }
     });
     

@@ -488,13 +488,18 @@ class TypedWebSocketServer(
     Future {
       logger.info(s"Generating image for message $messageIndex")
       val imageOpt = session.engine.generateSceneImage(text, Some(session.gameId))
+      logger.info(s"Image generation result for message $messageIndex: ${imageOpt.isDefined} (${imageOpt.map(_.length).getOrElse(0)} bytes)")
       session.pendingImages(messageIndex) = imageOpt
       
-      imageOpt.foreach { image =>
-        sendMessage(conn, ImageReadyMessage(
-          messageIndex = messageIndex,
-          image = image
-        ))
+      imageOpt match {
+        case Some(image) =>
+          logger.info(s"Sending ImageReadyMessage for message $messageIndex (${image.length} bytes)")
+          sendMessage(conn, ImageReadyMessage(
+            messageIndex = messageIndex,
+            image = image
+          ))
+        case None =>
+          logger.warn(s"No image generated for message $messageIndex")
       }
     }
   }
@@ -504,14 +509,19 @@ class TypedWebSocketServer(
     Future {
       logger.info(s"Generating music for message $messageIndex")
       val musicOpt = session.engine.generateBackgroundMusic(text, Some(session.gameId))
+      logger.info(s"Music generation result for message $messageIndex: ${musicOpt.isDefined}")
       session.pendingMusic(messageIndex) = musicOpt
       
-      musicOpt.foreach { case (music, mood) =>
-        sendMessage(conn, MusicReadyMessage(
-          messageIndex = messageIndex,
-          music = music,
-          mood = mood
-        ))
+      musicOpt match {
+        case Some((music, mood)) =>
+          logger.info(s"Sending MusicReadyMessage for message $messageIndex, mood: $mood (${music.length} bytes)")
+          sendMessage(conn, MusicReadyMessage(
+            messageIndex = messageIndex,
+            music = music,
+            mood = mood
+          ))
+        case None =>
+          logger.warn(s"No music generated for message $messageIndex")
       }
     }
   }
