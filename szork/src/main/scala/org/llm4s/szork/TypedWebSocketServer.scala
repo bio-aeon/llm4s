@@ -245,10 +245,10 @@ class TypedWebSocketServer(
         
         // Generate image/music if needed
         if (message.hasImage) {
-          generateImageAsync(session, initialMessage, engine.getMessageCount - 1, conn)
+          generateImageAsync(session, initialMessage, message.messageIndex, conn)
         }
         if (message.hasMusic) {
-          generateMusicAsync(session, initialMessage, engine.getMessageCount - 1, conn)
+          generateMusicAsync(session, initialMessage, message.messageIndex, conn)
         }
         
       case Left(error) =>
@@ -323,10 +323,10 @@ class TypedWebSocketServer(
                 
                 // Generate image/music if needed
                 if (message.hasImage) {
-                  generateImageAsync(session, gameResponse.text, message.messageIndex - 1, conn)
+                  generateImageAsync(session, gameResponse.text, message.messageIndex, conn)
                 }
                 if (message.hasMusic) {
-                  generateMusicAsync(session, gameResponse.text, message.messageIndex - 1, conn)
+                  generateMusicAsync(session, gameResponse.text, message.messageIndex, conn)
                 }
                 
                 // Auto-save
@@ -390,10 +390,10 @@ class TypedWebSocketServer(
                   
                   // Generate image/music if needed
                   if (message.hasImage) {
-                    generateImageAsync(session, response.text, message.messageIndex - 1, conn)
+                    generateImageAsync(session, response.text, message.messageIndex, conn)
                   }
                   if (message.hasMusic) {
-                    generateMusicAsync(session, response.text, message.messageIndex - 1, conn)
+                    generateMusicAsync(session, response.text, message.messageIndex, conn)
                   }
                   
                   // Auto-save
@@ -448,10 +448,10 @@ class TypedWebSocketServer(
                     
                     // Generate image/music if needed
                     if (message.hasImage) {
-                      generateImageAsync(session, gameResponse.text, message.messageIndex - 1, conn)
+                      generateImageAsync(session, gameResponse.text, message.messageIndex, conn)
                     }
                     if (message.hasMusic) {
-                      generateMusicAsync(session, gameResponse.text, message.messageIndex - 1, conn)
+                      generateMusicAsync(session, gameResponse.text, message.messageIndex, conn)
                     }
                     
                   case Left(error) =>

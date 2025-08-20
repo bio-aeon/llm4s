@@ -36,7 +36,7 @@ object MediaCache {
       Files.createDirectories(gameDir)
       Files.createDirectories(imagesDir)
       Files.createDirectories(musicDir)
-      logger.info(s"Created cache directories for game: $gameId")
+      logger.info(s"Created cache directories for game: $gameId at path: ${gameDir.toAbsolutePath}")
     }
     gameDir
   }
@@ -63,7 +63,7 @@ object MediaCache {
             if (isSimilarDescription(cachedImageDesc, imageDescription) && cachedArtStyle == artStyle) {
               val imageBytes = Files.readAllBytes(imagePath)
               val base64Content = Base64.getEncoder.encodeToString(imageBytes)
-              logger.info(s"Using cached image for game=$gameId, location=$locationId")
+              logger.info(s"Using cached image for game=$gameId, location=$locationId from path: ${imagePath.toAbsolutePath}")
               Some(base64Content)
             } else {
               logger.info(s"Image cache miss - description or style changed for game=$gameId, location=$locationId")
@@ -101,7 +101,7 @@ object MediaCache {
         locationData("imageGenerated") = System.currentTimeMillis()
       }
       
-      logger.info(s"Cached image for game=$gameId, location=$locationId")
+      logger.info(s"Cached image for game=$gameId, location=$locationId at path: ${imagePath.toAbsolutePath}")
     } catch {
       case e: Exception =>
         logger.error(s"Failed to cache image for game=$gameId, location=$locationId", e)
@@ -130,7 +130,7 @@ object MediaCache {
             if (isSimilarDescription(cachedMusicDesc, musicDescription) && cachedMood == mood) {
               val musicBytes = Files.readAllBytes(musicPath)
               val base64Content = Base64.getEncoder.encodeToString(musicBytes)
-              logger.info(s"Using cached music for game=$gameId, location=$locationId, mood=$mood")
+              logger.info(s"Using cached music for game=$gameId, location=$locationId, mood=$mood from path: ${musicPath.toAbsolutePath}")
               Some(base64Content)
             } else {
               logger.info(s"Music cache miss - description or mood changed for game=$gameId, location=$locationId")
@@ -168,7 +168,7 @@ object MediaCache {
         locationData("musicGenerated") = System.currentTimeMillis()
       }
       
-      logger.info(s"Cached music for game=$gameId, location=$locationId, mood=$mood")
+      logger.info(s"Cached music for game=$gameId, location=$locationId, mood=$mood at path: ${musicPath.toAbsolutePath}")
     } catch {
       case e: Exception =>
         logger.error(s"Failed to cache music for game=$gameId, location=$locationId", e)
