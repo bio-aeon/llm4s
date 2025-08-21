@@ -4,6 +4,7 @@ import org.llm4s.llmconnect.LLMClient
 import org.llm4s.llmconnect.config.OpenAIConfig
 import org.llm4s.llmconnect.model._
 import org.llm4s.llmconnect.serialization.OpenRouterToolCallDeserializer
+import org.llm4s.llmconnect.streaming.{ SSEParser, StreamingAccumulator }
 import org.llm4s.toolapi.ToolRegistry
 import org.llm4s.types.Result
 import org.llm4s.error.{ LLMError, AuthenticationError, RateLimitError, ServiceError }

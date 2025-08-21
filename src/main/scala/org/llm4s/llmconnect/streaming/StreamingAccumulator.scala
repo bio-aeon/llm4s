@@ -1,7 +1,7 @@
 package org.llm4s.llmconnect.streaming
 
 import org.llm4s.llmconnect.model._
-import org.llm4s.error.{ LLMError, ServiceError }
+import org.llm4s.error.ServiceError
 import org.llm4s.types.Result
 
 import scala.collection.mutable
