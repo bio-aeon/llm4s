@@ -108,12 +108,12 @@ class GameEngine(sessionId: String = "", theme: Option[String] = None, artStyle:
       |IMPORTANT: Output format for streaming support:
       |1. First output the narration text on its own line
       |2. Then output "<<<JSON>>>" on a new line
-      |3. Then output the full JSON response
+      |3. Then output the JSON response (WITHOUT narrationText field - we'll add it programmatically)
       |
       |Example:
       |You enter the dark cavern. Water drips from stalactites overhead.
       |<<<JSON>>>
-      |{"responseType": "fullScene", ...rest of JSON...}
+      |{"responseType": "fullScene", "locationId": "cavern_entrance", ...rest of JSON WITHOUT narrationText...}
       |
       |Choose the appropriate response type based on the action:
       |
@@ -122,7 +122,6 @@ class GameEngine(sessionId: String = "", theme: Option[String] = None, artStyle:
       |  "responseType": "fullScene",
       |  "locationId": "unique_location_id",  // e.g., "dungeon_entrance", "forest_path_1"
       |  "locationName": "Human Readable Name",  // e.g., "Dungeon Entrance", "Forest Path"
-      |  "narrationText": "Terse room description following classic text adventure conventions. First visit: 1-2 sentences maximum. Example: 'Kitchen. A stove sits against the north wall. There is a knife here.' Include object descriptions like 'There is a brass lantern here' for items.",
       |  "imageDescription": "Detailed 2-3 sentence visual description for image generation in $artStyleDescription. Include colors, lighting, atmosphere, architectural details, and visual elements appropriate for the art style.",
       |  "musicDescription": "Detailed atmospheric description for music generation. Include mood, tempo, instruments, and emotional tone.",
       |  "musicMood": "One of: entrance, exploration, combat, victory, dungeon, forest, town, mystery, castle, underwater, temple, boss, stealth, treasure, danger, peaceful",
@@ -137,7 +136,6 @@ class GameEngine(sessionId: String = "", theme: Option[String] = None, artStyle:
       |TYPE 2 - SIMPLE RESPONSE (for examine, help, inventory, interactions without scene change):
       |{
       |  "responseType": "simple",
-      |  "narrationText": "The response text without room description. For examine: detailed object description. For help: command list. For inventory: 'You are carrying: ...' etc.",
       |  "locationId": "current_location_id",  // Keep the same location ID as before
       |  "actionTaken": "examine/help/inventory/talk/use/etc"  // What action was performed
       |}
@@ -146,7 +144,8 @@ class GameEngine(sessionId: String = "", theme: Option[String] = None, artStyle:
       |- Follow classic text adventure writing conventions throughout
       |- Use "fullScene" response ONLY for: movement to new location, "look" command, or major scene changes
       |- Use "simple" response for: examine, help, inventory, talk, use item (without movement), take/drop items
-      |- NarrationText should be 1-2 sentences maximum for first visits, single phrase for return visits
+      |- The narration text (output BEFORE <<<JSON>>>) should be 1-2 sentences maximum for first visits, single phrase for return visits
+      |- Do NOT include narrationText field in the JSON - only output it before the <<<JSON>>> marker
       |- Prioritize functional clarity over atmospheric prose - be terse and direct
       |- ImageDescription should be rich and detailed (50-100 words) focusing on visual elements in the $artStyleDescription
       |- IMPORTANT: Always describe scenes specifically for the art style: $artStyleDescription
@@ -490,20 +489,41 @@ class GameEngine(sessionId: String = "", theme: Option[String] = None, artStyle:
     if (response.isEmpty) return None
     
     try {
-      // Try to extract JSON from the response (it might be wrapped in other text)
-      val jsonStart = response.indexOf('{')
-      val jsonEnd = response.lastIndexOf('}')
-      
-      if (jsonStart >= 0 && jsonEnd > jsonStart) {
-        val jsonStr = response.substring(jsonStart, jsonEnd + 1)
-        GameResponseData.fromJson(jsonStr) match {
-          case Right(data) => Some(data)
-          case Left(error) =>
-            logger.warn(s"[$sessionId] Failed to parse response JSON: $error")
-            None
+      // Check if response has the JSON marker format
+      val jsonMarkerIndex = response.indexOf("<<<JSON>>>")
+      val jsonWithNarration = if (jsonMarkerIndex >= 0) {
+        // Extract narration text and JSON separately
+        val narrationText = response.substring(0, jsonMarkerIndex).trim
+        val jsonStart = jsonMarkerIndex + "<<<JSON>>>".length
+        val jsonStr = response.substring(jsonStart).trim
+        
+        // Parse JSON and add narrationText field
+        try {
+          val json = ujson.read(jsonStr)
+          json("narrationText") = narrationText
+          json.toString()
+        } catch {
+          case _: Exception =>
+            // If JSON parsing fails, try to construct a valid response
+            jsonStr
         }
       } else {
-        None
+        // Fallback: try to extract JSON from the response
+        val jsonStart = response.indexOf('{')
+        val jsonEnd = response.lastIndexOf('}')
+        
+        if (jsonStart >= 0 && jsonEnd > jsonStart) {
+          response.substring(jsonStart, jsonEnd + 1)
+        } else {
+          return None
+        }
+      }
+      
+      GameResponseData.fromJson(jsonWithNarration) match {
+        case Right(data) => Some(data)
+        case Left(error) =>
+          logger.warn(s"[$sessionId] Failed to parse response JSON: $error")
+          None
       }
     } catch {
       case e: Exception =>

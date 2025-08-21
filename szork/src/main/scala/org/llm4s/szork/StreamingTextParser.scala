@@ -1,13 +1,14 @@
 package org.llm4s.szork
 
 import org.slf4j.LoggerFactory
+import ujson._
 
 /**
  * Parses streaming response that has narration text followed by JSON.
  * Format:
  *   Narration text here...
  *   <<<JSON>>>
- *   {"responseType": "fullScene", ...}
+ *   {"responseType": "fullScene", ...} (without narrationText field)
  */
 class StreamingTextParser {
   private val logger = LoggerFactory.getLogger(getClass.getSimpleName)
@@ -16,6 +17,7 @@ class StreamingTextParser {
   private var jsonStarted = false
   private var narrationComplete = false
   private var lastNarrationPosition = 0
+  private var capturedNarrationText: String = ""
   
   /**
    * Process a new chunk and extract narration text if available.
@@ -37,6 +39,8 @@ class StreamingTextParser {
         jsonStarted = true
         
         val narration = fullText.substring(0, jsonMarkerIndex).trim
+        capturedNarrationText = narration
+        
         if (narration.length > lastNarrationPosition) {
           val newText = narration.substring(lastNarrationPosition)
           lastNarrationPosition = narration.length
@@ -65,8 +69,9 @@ class StreamingTextParser {
   
   /**
    * Get the JSON portion of the response (after <<<JSON>>> marker).
+   * This method adds the narrationText field back into the JSON.
    * 
-   * @return The JSON string if available
+   * @return The JSON string with narrationText field added
    */
   def getJson(): Option[String] = {
     if (jsonStarted) {
@@ -74,9 +79,19 @@ class StreamingTextParser {
       val jsonMarkerIndex = fullText.indexOf("<<<JSON>>>")
       if (jsonMarkerIndex >= 0) {
         val jsonStart = jsonMarkerIndex + "<<<JSON>>>".length
-        val json = fullText.substring(jsonStart).trim
-        if (json.nonEmpty) {
-          return Some(json)
+        val jsonStr = fullText.substring(jsonStart).trim
+        
+        if (jsonStr.nonEmpty) {
+          try {
+            // Parse the JSON and add the narrationText field
+            val json = ujson.read(jsonStr)
+            json("narrationText") = capturedNarrationText
+            return Some(json.toString())
+          } catch {
+            case _: Exception =>
+              // If parsing fails, return the original JSON
+              return Some(jsonStr)
+          }
         }
       }
     }
@@ -87,16 +102,21 @@ class StreamingTextParser {
    * Get the complete narration text.
    */
   def getNarration(): Option[String] = {
-    val fullText = accumulated.toString
-    val jsonMarkerIndex = fullText.indexOf("<<<JSON>>>")
-    
-    if (jsonMarkerIndex >= 0) {
-      Some(fullText.substring(0, jsonMarkerIndex).trim)
-    } else if (fullText.nonEmpty) {
-      // No JSON marker found, treat entire text as narration
-      Some(fullText.trim)
+    if (capturedNarrationText.nonEmpty) {
+      Some(capturedNarrationText)
     } else {
-      None
+      // Fallback: extract from accumulated text if JSON marker hasn't been found yet
+      val fullText = accumulated.toString
+      val jsonMarkerIndex = fullText.indexOf("<<<JSON>>>")
+      
+      if (jsonMarkerIndex >= 0) {
+        Some(fullText.substring(0, jsonMarkerIndex).trim)
+      } else if (fullText.nonEmpty) {
+        // No JSON marker found yet, return what we have
+        Some(fullText.trim)
+      } else {
+        None
+      }
     }
   }
   
@@ -108,6 +128,7 @@ class StreamingTextParser {
     jsonStarted = false
     narrationComplete = false
     lastNarrationPosition = 0
+    capturedNarrationText = ""
     logger.debug("StreamingTextParser reset")
   }
 }
