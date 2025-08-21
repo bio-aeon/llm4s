@@ -152,7 +152,7 @@ class TypedWebSocketServer(
       case msg: ConnectedMessage =>
         s"[WS-OUT] Session: $sessionId | Type: ConnectedMessage | Version: ${msg.version}"
       case msg: GameStartedMessage =>
-        s"[WS-OUT] Session: $sessionId | Type: GameStartedMessage | GameId: ${msg.gameId} | MsgIdx: ${msg.messageIndex} | TextLen: ${msg.text.length} | HasImage: ${msg.hasImage} | HasMusic: ${msg.hasMusic}"
+        s"[WS-OUT] Session: $sessionId | Type: GameStartedMessage | GameId: ${msg.gameId} | MsgIdx: ${msg.messageIndex} | TextLen: ${msg.text.length} | HasAudio: ${msg.audio.isDefined} | HasImage: ${msg.hasImage} | HasMusic: ${msg.hasMusic}"
       case msg: GameLoadedMessage =>
         s"[WS-OUT] Session: $sessionId | Type: GameLoadedMessage | GameId: ${msg.gameId} | Messages: ${msg.conversation.length}"
       case msg: CommandResponseMessage =>
@@ -244,18 +244,36 @@ class TypedWebSocketServer(
         logger.info(s"Game initialized successfully. Message length: ${initialMessage.length}")
         val sceneData = engine.getCurrentScene.map(convertScene)
         
+        // Generate audio for the initial game text
+        val audioBase64 = if (initialMessage.nonEmpty) {
+          val audioStartTime = System.currentTimeMillis()
+          logger.info(s"Generating audio for initial game text (${initialMessage.length} chars)")
+          val tts = TextToSpeech()
+          tts.synthesizeToBase64(initialMessage, TextToSpeech.VOICE_NOVA) match {
+            case Right(audio) => 
+              val audioTime = System.currentTimeMillis() - audioStartTime
+              logger.info(s"Audio generation completed in ${audioTime}ms (${audio.length} bytes base64)")
+              Some(audio)
+            case Left(error) => 
+              logger.error(s"Failed to generate audio: $error")
+              None
+          }
+        } else {
+          None
+        }
+        
         val message = GameStartedMessage(
           sessionId = sessionId,
           gameId = gameId,
           text = initialMessage,
           messageIndex = engine.getMessageCount,
           scene = sceneData,
-          audio = None,  // Audio generation can be handled separately if needed
+          audio = audioBase64,  // Include the generated audio
           hasImage = request.imageGeneration && engine.shouldGenerateSceneImage(initialMessage),
           hasMusic = engine.shouldGenerateBackgroundMusic(initialMessage)
         )
         
-        logger.info(s"Sending GameStartedMessage - hasImage: ${message.hasImage}, hasMusic: ${message.hasMusic}")
+        logger.info(s"Sending GameStartedMessage - hasAudio: ${message.audio.isDefined}, hasImage: ${message.hasImage}, hasMusic: ${message.hasMusic}")
         sendMessage(conn, message)
         
         // Generate image/music if needed
