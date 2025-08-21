@@ -21,15 +21,20 @@ class TypedWebSocketServer(
   
   private val logger = LoggerFactory.getLogger(getClass.getSimpleName)
   
+  // Generate a unique server instance ID on server start
+  private val serverInstanceId = java.util.UUID.randomUUID().toString
+  
   // Map WebSocket connections to session IDs
   private val connectionSessions = TrieMap[WebSocket, String]()
   
   override def onOpen(conn: WebSocket, handshake: ClientHandshake): Unit = {
     logger.info(s"WebSocket connection opened from: ${conn.getRemoteSocketAddress}")
-    // Send welcome message
+    logger.info(s"Server instance ID: $serverInstanceId")
+    // Send welcome message with server instance ID
     sendMessage(conn, ConnectedMessage(
       message = "Connected to SZork WebSocket server",
-      version = "1.0"
+      version = "1.0",
+      serverInstanceId = serverInstanceId
     ))
   }
   
@@ -150,7 +155,7 @@ class TypedWebSocketServer(
     // Log outgoing message with key details
     val logMessage = message match {
       case msg: ConnectedMessage =>
-        s"[WS-OUT] Session: $sessionId | Type: ConnectedMessage | Version: ${msg.version}"
+        s"[WS-OUT] Session: $sessionId | Type: ConnectedMessage | Version: ${msg.version} | ServerInstance: ${msg.serverInstanceId}"
       case msg: GameStartedMessage =>
         s"[WS-OUT] Session: $sessionId | Type: GameStartedMessage | GameId: ${msg.gameId} | MsgIdx: ${msg.messageIndex} | TextLen: ${msg.text.length} | HasAudio: ${msg.audio.isDefined} | HasImage: ${msg.hasImage} | HasMusic: ${msg.hasMusic}"
       case msg: GameLoadedMessage =>

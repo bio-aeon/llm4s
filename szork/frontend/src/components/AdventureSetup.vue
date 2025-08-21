@@ -133,16 +133,29 @@
             >
               Back
             </v-btn>
-            <v-btn
-              size="large"
-              :disabled="!selectedStyle"
-              @click="startAdventure"
-              :loading="startingGame"
-              class="begin-adventure-btn"
+            <v-tooltip
+              :text="!serverAvailable ? 'Server not available - please ensure the game server is running' : ''"
+              :disabled="serverAvailable"
+              location="top"
             >
-              Begin Adventure
-              <v-icon end>mdi-chevron-right</v-icon>
-            </v-btn>
+              <template v-slot:activator="{ props }">
+                <v-btn
+                  v-bind="props"
+                  size="large"
+                  :disabled="!selectedStyle || !serverAvailable || checkingServer"
+                  @click="startAdventure"
+                  :loading="startingGame || checkingServer"
+                  class="begin-adventure-btn"
+                  :color="!serverAvailable ? 'error' : 'primary'"
+                >
+                  <span v-if="!serverAvailable">Server Unavailable</span>
+                  <span v-else-if="checkingServer">Checking Server...</span>
+                  <span v-else>Begin Adventure</span>
+                  <v-icon v-if="serverAvailable && !checkingServer" end>mdi-chevron-right</v-icon>
+                  <v-icon v-else-if="!serverAvailable" end>mdi-alert-circle</v-icon>
+                </v-btn>
+              </template>
+            </v-tooltip>
           </div>
         </div>
       </transition>
@@ -151,8 +164,9 @@
 </template>
 
 <script lang="ts">
-import { defineComponent, ref, computed } from "vue";
+import { defineComponent, ref, computed, onMounted } from "vue";
 import axios from "axios";
+import { WebSocketClient } from "@/services/WebSocketClient";
 
 interface Theme {
   id: string;
@@ -185,6 +199,8 @@ export default defineComponent({
     const adventureOutline = ref<any>(null);
     const generationStatus = ref("Creating your unique adventure...");
     const generationProgress = ref(0);
+    const serverAvailable = ref(true);
+    const checkingServer = ref(false);
     
     const predefinedThemes: Theme[] = [
       {
@@ -391,8 +407,32 @@ export default defineComponent({
       }
     };
     
+    // Check server availability on mount
+    onMounted(async () => {
+      checkingServer.value = true;
+      const wsClient = new WebSocketClient();
+      try {
+        serverAvailable.value = await wsClient.checkServerAvailability(3000);
+        if (!serverAvailable.value) {
+          console.warn('[AdventureSetup] Server is not available');
+        }
+      } catch (error) {
+        console.error('[AdventureSetup] Error checking server:', error);
+        serverAvailable.value = false;
+      } finally {
+        checkingServer.value = false;
+        wsClient.disconnect();
+      }
+    });
+    
     const startAdventure = async () => {
       if (!selectedTheme.value || !selectedStyle.value) return;
+      
+      // Check server availability before starting
+      if (!serverAvailable.value) {
+        console.error('[AdventureSetup] Cannot start adventure - server not available');
+        return;
+      }
       
       startingGame.value = true;
       currentStep.value = "generating";
@@ -453,7 +493,9 @@ export default defineComponent({
       startAdventure,
       adventureOutline,
       generationStatus,
-      generationProgress
+      generationProgress,
+      serverAvailable,
+      checkingServer
     };
   }
 });

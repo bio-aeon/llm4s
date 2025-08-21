@@ -114,7 +114,8 @@ object PingMessage {
 
 case class ConnectedMessage(
   message: String,
-  version: String
+  version: String,
+  serverInstanceId: String
 ) extends ServerMessage
 object ConnectedMessage {
   implicit val rw: ReadWriter[ConnectedMessage] = macroRW

@@ -5,6 +5,7 @@
 import type { 
   ClientMessage, 
   ServerMessage,
+  NewGameRequest,
   ConnectedMessage,
   GameStartedMessage,
   GameLoadedMessage,
@@ -31,6 +32,8 @@ export class WebSocketClient {
   private isConnected = false;
   private messageQueue: ClientMessage[] = [];
   private pingInterval: NodeJS.Timeout | null = null;
+  private serverInstanceId: string | null = null;
+  private serverAvailable = false;
   
   constructor(url: string = 'ws://localhost:9002') {
     this.url = url;
@@ -198,7 +201,10 @@ export class WebSocketClient {
       
       switch (message.type) {
         case 'connected':
-          logMessage += ` | Version: ${msgData?.version}`;
+          logMessage += ` | Version: ${msgData?.version} | ServerInstance: ${msgData?.serverInstanceId}`;
+          // Check for server instance change
+          this.handleServerInstanceChange(msgData?.serverInstanceId);
+          this.serverAvailable = true;
           break;
         case 'gameStarted':
           logMessage += ` | GameId: ${msgData?.gameId} | SessionId: ${msgData?.sessionId} | MsgIdx: ${msgData?.messageIndex} | TextLen: ${msgData?.text?.length} | HasImage: ${msgData?.hasImage}`;
@@ -289,10 +295,71 @@ export class WebSocketClient {
   }
   
   /**
+   * Handle server instance change
+   */
+  private handleServerInstanceChange(newInstanceId: string): void {
+    if (this.serverInstanceId && this.serverInstanceId !== newInstanceId) {
+      console.warn('[WebSocketClient] Server instance changed! Clearing game state...');
+      // Clear local storage and session storage
+      localStorage.removeItem('soundEnabled');
+      localStorage.removeItem('musicEnabled');
+      localStorage.removeItem('currentGameId');
+      sessionStorage.clear();
+      
+      // Emit an event for the app to handle
+      window.dispatchEvent(new CustomEvent('serverInstanceChanged', { 
+        detail: { 
+          oldInstanceId: this.serverInstanceId, 
+          newInstanceId 
+        } 
+      }));
+    }
+    this.serverInstanceId = newInstanceId;
+    console.log('[WebSocketClient] Server instance ID:', this.serverInstanceId);
+  }
+  
+  /**
    * Check if connected
    */
   get connected(): boolean {
     return this.isConnected;
+  }
+  
+  /**
+   * Check if server is available
+   */
+  get isServerAvailable(): boolean {
+    return this.serverAvailable;
+  }
+  
+  /**
+   * Get the current server instance ID
+   */
+  getServerInstanceId(): string | null {
+    return this.serverInstanceId;
+  }
+  
+  /**
+   * Check server availability with timeout
+   */
+  async checkServerAvailability(timeout = 3000): Promise<boolean> {
+    return new Promise((resolve) => {
+      const timeoutId = setTimeout(() => {
+        this.serverAvailable = false;
+        resolve(false);
+      }, timeout);
+      
+      // Try to connect
+      this.connect().then(() => {
+        clearTimeout(timeoutId);
+        this.serverAvailable = this.isConnected;
+        resolve(this.isConnected);
+      }).catch(() => {
+        clearTimeout(timeoutId);
+        this.serverAvailable = false;
+        resolve(false);
+      });
+    });
   }
   
   // ============= Convenience methods for common operations =============
@@ -305,9 +372,9 @@ export class WebSocketClient {
       type: 'newGame',
       theme,
       artStyle,
-      imageGeneration,
-      adventureOutline
-    });
+      imageGeneration
+      // adventureOutline is not part of the protocol yet, will be added later
+    } as NewGameRequest);
   }
   
   /**

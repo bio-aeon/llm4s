@@ -69,6 +69,7 @@ export interface ConnectedMessage {
   data: {
     message: string;
     version: string;
+    serverInstanceId: string;
   };
 }
 
