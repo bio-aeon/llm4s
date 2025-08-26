@@ -11,12 +11,14 @@ case class EmbeddingProviderConfig(
 object EmbeddingConfig {
 
   // --- helpers ---
+  /** Required env var; throws with a clear message if missing. */
   def loadEnv(name: String): String =
     EnvLoader.get(name).getOrElse(throw new RuntimeException(s"Missing env variable: $name"))
 
   def loadOptionalEnv(name: String, default: String): String =
     EnvLoader.get(name).getOrElse(default)
 
+  /** Optional env var with default. */
   def loadOptionalEnv(name: String, default: String): String =
     sys.env.getOrElse(name, default)
 
@@ -25,13 +27,14 @@ object EmbeddingConfig {
     sys.env.get(name).map(_.trim).filter(_.nonEmpty)
 
   // ---------- Providers (TEXT embeddings over HTTP) ----------
-  val openAI: EmbeddingProviderConfig = EmbeddingProviderConfig(
+  // NOTE: switched from 'val' to 'def' so these are only evaluated when actually used.
+  def openAI: EmbeddingProviderConfig = EmbeddingProviderConfig(
     baseUrl = loadEnv("OPENAI_EMBEDDING_BASE_URL"),
     model = loadEnv("OPENAI_EMBEDDING_MODEL"),
     apiKey = loadEnv("OPENAI_API_KEY")
   )
 
-  val voyage: EmbeddingProviderConfig = EmbeddingProviderConfig(
+  def voyage: EmbeddingProviderConfig = EmbeddingProviderConfig(
     baseUrl = loadEnv("VOYAGE_EMBEDDING_BASE_URL"),
     model = loadEnv("VOYAGE_EMBEDDING_MODEL"),
     apiKey = loadEnv("VOYAGE_API_KEY")

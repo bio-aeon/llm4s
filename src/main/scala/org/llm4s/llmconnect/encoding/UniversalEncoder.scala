@@ -22,7 +22,7 @@ object UniversalEncoder {
     if (!f.exists() || !f.isFile) return Left(EmbeddingError(None, s"File not found: $path", "extractor"))
 
     val mime = Try(tika.detect(f)).getOrElse("application/octet-stream")
-    logger.info(s"[UniversalEncoder] MIME detected: $mime")
+    logger.debug(s"[UniversalEncoder] MIME detected: $mime")
 
     // Reuse canonical MIME logic from UniversalExtractor (no duplication).
     if (UniversalExtractor.isTextLike(mime)) encodeTextFile(f, mime, client)
@@ -45,7 +45,7 @@ object UniversalEncoder {
           if (EmbeddingConfig.chunkingEnabled) {
             val size = EmbeddingConfig.chunkSize
             val ovlp = EmbeddingConfig.chunkOverlap
-            logger.info(s"[UniversalEncoder] Chunking text: size=$size overlap=$ovlp")
+            logger.debug(s"[UniversalEncoder] Chunking text: size=$size overlap=$ovlp")
             ChunkingUtils.chunkText(text, size, ovlp)
           } else Seq(text)
 
@@ -71,31 +71,80 @@ object UniversalEncoder {
         }
     }
 
-  // ---------------- IMAGE (stub: deterministic hash vector) ----------------
+  // --------------- EXPERIMENTAL GATE ----------------
+  private def experimentalOn: Boolean =
+    sys.env.get("ENABLE_EXPERIMENTAL_STUBS").exists(_.trim.equalsIgnoreCase("true"))
+
+  private def notImpl(mod: String) =
+    Left(
+      EmbeddingError(
+        code = Some("501"),
+        message = s"$mod embeddings not implemented. Set ENABLE_EXPERIMENTAL_STUBS=true to enable demo stubs.",
+        provider = "encoder"
+      )
+    )
+
+  // ---------------- IMAGE (stub gated behind demo flag) ----------------
   private def encodeImageFile(file: File, mime: String): Either[EmbeddingError, Seq[EmbeddingVector]] = {
+    if (!experimentalOn) return notImpl("Image")
     val model = ModelSelector.selectModel(Image)
     val dim   = model.dimensions
     val seed  = stableSeed(file)
     val raw   = fillDeterministic(dim, seed)
-    Right(Seq(EmbeddingVector(file.getName, Image, model.name, dim, l2(raw), Map("mime" -> mime))))
+    Right(
+      Seq(
+        EmbeddingVector(
+          id = file.getName,
+          modality = Image,
+          model = model.name,
+          dim = dim,
+          values = l2(raw),
+          meta = Map("mime" -> mime, "experimental" -> "true", "provider" -> "local-experimental")
+        )
+      )
+    )
   }
 
-  // ---------------- AUDIO (stub: deterministic hash vector) ----------------
+  // ---------------- AUDIO (stub gated behind demo flag) ----------------
   private def encodeAudioFile(file: File, mime: String): Either[EmbeddingError, Seq[EmbeddingVector]] = {
+    if (!experimentalOn) return notImpl("Audio")
     val model = ModelSelector.selectModel(Audio)
     val dim   = model.dimensions
     val seed  = stableSeed(file) ^ 0x9e3779b97f4a7c15L
     val raw   = fillDeterministic(dim, seed)
-    Right(Seq(EmbeddingVector(file.getName, Audio, model.name, dim, l2(raw), Map("mime" -> mime))))
+    Right(
+      Seq(
+        EmbeddingVector(
+          id = file.getName,
+          modality = Audio,
+          model = model.name,
+          dim = dim,
+          values = l2(raw),
+          meta = Map("mime" -> mime, "experimental" -> "true", "provider" -> "local-experimental")
+        )
+      )
+    )
   }
 
-  // ---------------- VIDEO (stub: deterministic hash vector) ----------------
+  // ---------------- VIDEO (stub gated behind demo flag) ----------------
   private def encodeVideoFile(file: File, mime: String): Either[EmbeddingError, Seq[EmbeddingVector]] = {
+    if (!experimentalOn) return notImpl("Video")
     val model = ModelSelector.selectModel(Video)
     val dim   = model.dimensions
     val seed  = stableSeed(file) ^ 0xc2b2ae3d27d4eb4fL
     val raw   = fillDeterministic(dim, seed)
-    Right(Seq(EmbeddingVector(file.getName, Video, model.name, dim, l2(raw), Map("mime" -> mime))))
+    Right(
+      Seq(
+        EmbeddingVector(
+          id = file.getName,
+          modality = Video,
+          model = model.name,
+          dim = dim,
+          values = l2(raw),
+          meta = Map("mime" -> mime, "experimental" -> "true", "provider" -> "local-experimental")
+        )
+      )
+    )
   }
 
   // ---------------- helpers ----------------

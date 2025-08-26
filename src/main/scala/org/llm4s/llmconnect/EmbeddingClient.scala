@@ -1,6 +1,7 @@
 package org.llm4s.llmconnect
 
 import org.llm4s.llmconnect.config.EmbeddingConfig
+<<<<<<< HEAD
 import org.llm4s.llmconnect.model.{ EmbeddingRequest, EmbeddingResponse, EmbeddingError, EmbeddingVector }
 import org.llm4s.llmconnect.provider.{ EmbeddingProvider, OpenAIEmbeddingProvider, VoyageAIEmbeddingProvider }
 <<<<<<< HEAD
@@ -8,8 +9,19 @@ import org.llm4s.llmconnect.provider.{ EmbeddingProvider, OpenAIEmbeddingProvide
 <<<<<<< HEAD
 ||||||| parent of 8bd3f68 (update: embedx-v2 on multimedia data)
 =======
+||||||| parent of e65bcd6 (Embedx-v2: CLI report; non-text marked as stubs)
+import org.llm4s.llmconnect.model.{ EmbeddingRequest, EmbeddingResponse, EmbeddingError, EmbeddingVector }
+import org.llm4s.llmconnect.provider.{ EmbeddingProvider, OpenAIEmbeddingProvider, VoyageAIEmbeddingProvider }
+=======
+>>>>>>> e65bcd6 (Embedx-v2: CLI report; non-text marked as stubs)
 import org.llm4s.llmconnect.encoding.UniversalEncoder
+<<<<<<< HEAD
 >>>>>>> 8bd3f68 (update: embedx-v2 on multimedia data)
+||||||| parent of e65bcd6 (Embedx-v2: CLI report; non-text marked as stubs)
+=======
+import org.llm4s.llmconnect.model.{ EmbeddingError, EmbeddingRequest, EmbeddingResponse, EmbeddingVector }
+import org.llm4s.llmconnect.provider.{ EmbeddingProvider, OpenAIEmbeddingProvider, VoyageAIEmbeddingProvider }
+>>>>>>> e65bcd6 (Embedx-v2: CLI report; non-text marked as stubs)
 import org.slf4j.LoggerFactory
 
 import java.nio.file.Path
@@ -17,7 +29,9 @@ import java.nio.file.Path
 class EmbeddingClient(provider: EmbeddingProvider) {
   private val logger = LoggerFactory.getLogger(getClass)
 
+  /** Text embeddings via the configured HTTP provider. */
   def embed(request: EmbeddingRequest): Either[EmbeddingError, EmbeddingResponse] = {
+<<<<<<< HEAD
     logger.info(s"[EmbeddingClient] Embedding input with model ${request.model.name}")
 ||||||| parent of ad62d21 (Add dynamic chunking and logging to embedding pipeline)
 =======
@@ -40,10 +54,15 @@ class EmbeddingClient(provider: EmbeddingProvider) {
 =======
     logger.info(s"[EmbeddingClient] Embedding input with model ${request.model.name}")
 >>>>>>> 0013d53 (LoggerUtils to SLf4J logger)
+||||||| parent of e65bcd6 (Embedx-v2: CLI report; non-text marked as stubs)
+    logger.info(s"[EmbeddingClient] Embedding input with model ${request.model.name}")
+=======
+    logger.debug(s"[EmbeddingClient] Embedding with model=${request.model.name}, inputs=${request.input.size}")
+>>>>>>> e65bcd6 (Embedx-v2: CLI report; non-text marked as stubs)
     provider.embed(request)
   }
 
-  /** New: unified API to encode any supported file into vectors. */
+  /** Unified API to encode any supported file into vectors. */
   def encodePath(path: Path): Either[EmbeddingError, Seq[EmbeddingVector]] =
     UniversalEncoder.encodeFromPath(path, this)
 }
@@ -53,6 +72,7 @@ object EmbeddingClient {
 <<<<<<< HEAD
   private val logger = LoggerFactory.getLogger(getClass)
 
+<<<<<<< HEAD
 ||||||| parent of ad62d21 (Add dynamic chunking and logging to embedding pipeline)
   def fromConfig(): EmbeddingProvider =
     EmbeddingConfig.activeProvider match {
@@ -63,6 +83,13 @@ object EmbeddingClient {
   private val logger = LoggerFactory.getLogger(getClass)
 
 >>>>>>> 0013d53 (LoggerUtils to SLf4J logger)
+||||||| parent of e65bcd6 (Embedx-v2: CLI report; non-text marked as stubs)
+=======
+  /**
+   * Legacy factory (back-compat): throws on unsupported provider.
+   * Prefer [[fromConfigEither]] in new code to avoid exceptions on misconfig.
+   */
+>>>>>>> e65bcd6 (Embedx-v2: CLI report; non-text marked as stubs)
   def fromConfig(): EmbeddingClient = {
     val providerName = EmbeddingConfig.activeProvider.toLowerCase
 
@@ -100,5 +127,32 @@ object EmbeddingClient {
     logger.info(s"[EmbeddingClient] Initialized with provider: $providerName")
 >>>>>>> 0013d53 (LoggerUtils to SLf4J logger)
     new EmbeddingClient(provider)
+  }
+
+  /**
+   * Safe factory: returns Either instead of throwing on misconfiguration.
+   * Useful for samples/CLIs where we want a clean error path.
+   */
+  def fromConfigEither(): Either[EmbeddingError, EmbeddingClient] = {
+    val providerName = EmbeddingConfig.activeProvider.toLowerCase
+    val providerOpt: Option[EmbeddingProvider] = providerName match {
+      case "openai" => Some(OpenAIEmbeddingProvider)
+      case "voyage" => Some(VoyageAIEmbeddingProvider)
+      case _        => None
+    }
+
+    providerOpt match {
+      case Some(p) =>
+        logger.info(s"[EmbeddingClient] Initialized with provider: $providerName")
+        Right(new EmbeddingClient(p))
+      case None =>
+        Left(
+          EmbeddingError(
+            code = Some("400"),
+            message = s"Unsupported embedding provider: $providerName",
+            provider = "config"
+          )
+        )
+    }
   }
 }

@@ -240,8 +240,14 @@ lazy val crossLibDependencies = Def.setting {
     "org.apache.poi" % "poi-ooxml" % "5.2.3",
     "org.apache.tika" % "tika-core" % "2.9.0",
     "com.lihaoyi" %% "requests" % "0.8.0",
+<<<<<<< HEAD
     "org.jsoup" % "jsoup" % "1.17.2"
 >>>>>>> ad62d21 (Add dynamic chunking and logging to embedding pipeline)
+||||||| parent of e65bcd6 (Embedx-v2: CLI report; non-text marked as stubs)
+    "org.jsoup" % "jsoup" % "1.17.2"
+=======
+    "org.jsoup" % "jsoup" % "1.17.2" 
+>>>>>>> e65bcd6 (Embedx-v2: CLI report; non-text marked as stubs)
   )
 }
 
