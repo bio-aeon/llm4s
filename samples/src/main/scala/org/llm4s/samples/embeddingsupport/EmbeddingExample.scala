@@ -1,56 +1,11 @@
 package org.llm4s.samples.embeddingsupport
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-||||||| parent of 29e3c07 (PR3: Extended Voyage model support and improved ModelSelector logic)
-import org.llm4s.llmconnect.EmbeddingClient
-import org.llm4s.llmconnect.config.{EmbeddingConfig, EmbeddingModelConfig}
-=======
-import org.llm4s.llmconnect.EmbeddingClient
->>>>>>> 29e3c07 (PR3: Extended Voyage model support and improved ModelSelector logic)
-||||||| parent of ad62d21 (Add dynamic chunking and logging to embedding pipeline)
-import org.llm4s.llmconnect.EmbeddingClient
-=======
->>>>>>> ad62d21 (Add dynamic chunking and logging to embedding pipeline)
-import org.llm4s.llmconnect.config.EmbeddingConfig
-import org.llm4s.llmconnect.extractors.UniversalExtractor
-<<<<<<< HEAD
-<<<<<<< HEAD
-import org.llm4s.llmconnect.model.{EmbeddingRequest, ExtractorError}
-import org.llm4s.llmconnect.utils.{ChunkingUtils, SimilarityUtils}
-||||||| parent of 8bd3f68 (update: embedx-v2 on multimedia data)
-import org.llm4s.llmconnect.config.EmbeddingConfig
-import org.llm4s.llmconnect.extractors.UniversalExtractor
-import org.llm4s.llmconnect.model.{EmbeddingRequest, ExtractorError}
-import org.llm4s.llmconnect.utils.{ChunkingUtils, SimilarityUtils}
-=======
->>>>>>> 8bd3f68 (update: embedx-v2 on multimedia data)
 import org.llm4s.llmconnect.EmbeddingClient
 import org.llm4s.llmconnect.config.EmbeddingConfig
 import org.llm4s.llmconnect.model._
 import org.llm4s.llmconnect.utils.{ ModelSelector, SimilarityUtils }
+import org.llm4s.config.ConfigReader.LLMConfig
 import org.slf4j.LoggerFactory
-||||||| parent of 29e3c07 (PR3: Extended Voyage model support and improved ModelSelector logic)
-import org.llm4s.llmconnect.model.EmbeddingRequest
-import org.llm4s.llmconnect.utils.SimilarityUtils
-=======
-import org.llm4s.llmconnect.model.EmbeddingRequest
-import org.llm4s.llmconnect.utils.{ ModelSelector, SimilarityUtils }
->>>>>>> 29e3c07 (PR3: Extended Voyage model support and improved ModelSelector logic)
-||||||| parent of ad62d21 (Add dynamic chunking and logging to embedding pipeline)
-import org.llm4s.llmconnect.model.EmbeddingRequest
-import org.llm4s.llmconnect.utils.{ ModelSelector, SimilarityUtils }
-=======
-import org.llm4s.llmconnect.model.{EmbeddingRequest, ExtractorError}
-import org.llm4s.llmconnect.utils.{ChunkingUtils, SimilarityUtils}
-import org.llm4s.llmconnect.EmbeddingClient
-<<<<<<< HEAD
->>>>>>> ad62d21 (Add dynamic chunking and logging to embedding pipeline)
-||||||| parent of 0013d53 (LoggerUtils to SLf4J logger)
-=======
-import org.slf4j.LoggerFactory
->>>>>>> 0013d53 (LoggerUtils to SLf4J logger)
 
 import java.nio.file.{ Files, Path, Paths }
 import java.time.{ ZonedDateTime, ZoneId }
@@ -59,50 +14,9 @@ import scala.util.Try
 
 object EmbeddingExample {
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-  private val logger = LoggerFactory.getLogger(getClass)
-||||||| parent of 29e3c07 (PR3: Extended Voyage model support and improved ModelSelector logic)
-  val activeProvider = EmbeddingConfig.activeProvider.toLowerCase
-  val model = activeProvider match {
-    case "openai"  => EmbeddingModelConfig(EmbeddingConfig.openAI.model, 1536)
-    case "voyage"  => EmbeddingModelConfig(EmbeddingConfig.voyage.model, 1024)
-    case other     => throw new RuntimeException(s"Unsupported provider: $other")
-  }
-=======
-  val provider = EmbeddingConfig.activeProvider.toLowerCase
->>>>>>> 29e3c07 (PR3: Extended Voyage model support and improved ModelSelector logic)
-||||||| parent of ad62d21 (Add dynamic chunking and logging to embedding pipeline)
-  val provider = EmbeddingConfig.activeProvider.toLowerCase
-=======
-||||||| parent of 0013d53 (LoggerUtils to SLf4J logger)
-=======
   private val logger = LoggerFactory.getLogger(getClass)
 
-<<<<<<< HEAD
-<<<<<<< HEAD
->>>>>>> 0013d53 (LoggerUtils to SLf4J logger)
-  def main(args: Array[String]): Unit = {
-<<<<<<< HEAD
-    LoggerUtils.info("Starting embedding example...")
->>>>>>> ad62d21 (Add dynamic chunking and logging to embedding pipeline)
-||||||| parent of 0013d53 (LoggerUtils to SLf4J logger)
-    LoggerUtils.info("Starting embedding example...")
-=======
-    logger.info("Starting embedding example...")
->>>>>>> 0013d53 (LoggerUtils to SLf4J logger)
-
-<<<<<<< HEAD
-<<<<<<< HEAD
-||||||| parent of 8bd3f68 (update: embedx-v2 on multimedia data)
-=======
-  // --------- Output knobs (env-tunable) ----------
-||||||| parent of e65bcd6 (Embedx-v2: CLI report; non-text marked as stubs)
-  // --------- Output knobs (env-tunable) ----------
-=======
   // ------------------------ Output knobs (env-tunable) ------------------------
->>>>>>> e65bcd6 (Embedx-v2: CLI report; non-text marked as stubs)
   private val MAX_ROWS_PER_FILE: Int =
     sys.env.get("MAX_ROWS_PER_FILE").flatMap(s => Try(s.toInt).toOption).getOrElse(200)
   private val TOP_DIMS_PER_ROW: Int  =
@@ -126,106 +40,27 @@ object EmbeddingExample {
   private val COL_TOP   = math.max(18, TABLE_WIDTH - (COL_IDX + 1 + COL_ID + 2 + COL_DIM + 2 + COL_SIM + 2 + 18))
   private val COL_META  = 18
 
->>>>>>> 8bd3f68 (update: embedx-v2 on multimedia data)
   def main(args: Array[String]): Unit = {
-<<<<<<< HEAD
-    logger.info("Starting embedding example...")
-||||||| parent of 29e3c07 (PR3: Extended Voyage model support and improved ModelSelector logic)
-  val extractedText = UniversalExtractor.extract(EmbeddingConfig.inputPath)
-  val query = EmbeddingConfig.query
-=======
-  // Step 1: Extract input and query text
-  val extractedText = UniversalExtractor.extract(EmbeddingConfig.inputPath)
-  val query = EmbeddingConfig.query
->>>>>>> 29e3c07 (PR3: Extended Voyage model support and improved ModelSelector logic)
-||||||| parent of ad62d21 (Add dynamic chunking and logging to embedding pipeline)
-  // Step 1: Extract input and query text
-  val extractedText = UniversalExtractor.extract(EmbeddingConfig.inputPath)
-  val query = EmbeddingConfig.query
-=======
-    val inputPath = EmbeddingConfig.inputPath
-    val query     = EmbeddingConfig.query
->>>>>>> ad62d21 (Add dynamic chunking and logging to embedding pipeline)
-||||||| parent of 8bd3f68 (update: embedx-v2 on multimedia data)
     logger.info("Starting embedding example...")
 
-    val inputPath = EmbeddingConfig.inputPath
-    val query     = EmbeddingConfig.query
-=======
-    val targets = parseTargets()
+    val config = LLMConfig()
+    
+    val targets = parseTargets(config)
     if (targets.isEmpty) {
       println(red("[ERR] No inputs. Set EMBEDDING_INPUT_PATH or EMBEDDING_INPUT_PATHS."))
       return
     }
 
-    val client = EmbeddingClient.fromConfigEither() match {
+    val client = EmbeddingClient.fromConfigEither(config) match {
       case Left(err) =>
         println(red(s"[ERR] config: ${err.provider} -> ${err.message}"))
         return
       case Right(c) => c
     }
 
-    val query       = EmbeddingConfig.query
-    val queryVecOpt = embedQueryOnce(client, query)
->>>>>>> 8bd3f68 (update: embedx-v2 on multimedia data)
+    val query       = EmbeddingConfig.query(config)
+    val queryVecOpt = embedQueryOnce(client, query, config)
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-    val inputPath = EmbeddingConfig.inputPath
-    val query     = EmbeddingConfig.query
-||||||| parent of 29e3c07 (PR3: Extended Voyage model support and improved ModelSelector logic)
-  val request = EmbeddingRequest(Seq(extractedText, query), model)
-  val provider = EmbeddingClient.fromConfig()
-=======
-  // Step 2: Dynamically select the model based on input text and provider
-  val selectedModel = ModelSelector.selectModel(provider, extractedText)
->>>>>>> 29e3c07 (PR3: Extended Voyage model support and improved ModelSelector logic)
-||||||| parent of ad62d21 (Add dynamic chunking and logging to embedding pipeline)
-  // Step 2: Dynamically select the model based on input text and provider
-  val selectedModel = ModelSelector.selectModel(provider, extractedText)
-=======
-    LoggerUtils.info(s"Extracting from: $inputPath")
-||||||| parent of 0013d53 (LoggerUtils to SLf4J logger)
-    LoggerUtils.info(s"Extracting from: $inputPath")
-=======
-    logger.info(s"Extracting from: $inputPath")
->>>>>>> 0013d53 (LoggerUtils to SLf4J logger)
-    val extractedEither = UniversalExtractor.extract(inputPath)
->>>>>>> ad62d21 (Add dynamic chunking and logging to embedding pipeline)
-
-<<<<<<< HEAD
-<<<<<<< HEAD
-    logger.info(s"Extracting from: $inputPath")
-    val extractedEither = UniversalExtractor.extract(inputPath)
-||||||| parent of 29e3c07 (PR3: Extended Voyage model support and improved ModelSelector logic)
-  provider.embed(request) match {
-    case Right(response) =>
-      val docVec = response.vectors.head
-      val queryVec = response.vectors.last
-      val score = SimilarityUtils.cosineSimilarity(docVec, queryVec)
-=======
-  // Step 3: Create embedding request
-  val request = EmbeddingRequest(Seq(extractedText, query), model = selectedModel)
-||||||| parent of ad62d21 (Add dynamic chunking and logging to embedding pipeline)
-  // Step 3: Create embedding request
-  val request = EmbeddingRequest(Seq(extractedText, query), model = selectedModel)
-=======
-    extractedEither match {
-      case Left(error: ExtractorError) =>
-        logger.error(s"[ExtractorError] ${error.message} (type: ${error.`type`}, path: ${error.path})")
-        return
->>>>>>> ad62d21 (Add dynamic chunking and logging to embedding pipeline)
-||||||| parent of 8bd3f68 (update: embedx-v2 on multimedia data)
-    logger.info(s"Extracting from: $inputPath")
-    val extractedEither = UniversalExtractor.extract(inputPath)
-
-    extractedEither match {
-      case Left(error: ExtractorError) =>
-        logger.error(s"[ExtractorError] ${error.message} (type: ${error.`type`}, path: ${error.path})")
-        return
-=======
     // accumulate results
     val perFileRows = collection.mutable.ArrayBuffer.empty[(String, Seq[Row])]
     val globalText  = collection.mutable.ArrayBuffer.empty[Row]
@@ -250,192 +85,18 @@ object EmbeddingExample {
           clipped.filter(_.modality == "Text").foreach(globalText += _)
       }
     }
->>>>>>> 8bd3f68 (update: embedx-v2 on multimedia data)
 
     // ---- print report ----
-    println(renderHeader(provider = EmbeddingConfig.activeProvider, query = query))
+    println(renderHeader(provider = EmbeddingConfig.activeProvider(config), query = query, config))
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-  embeddingProvider.embed(request) match {
-    case Right(response) =>
-      val docVec = response.vectors.head
-      val queryVec = response.vectors.last
-      val score = SimilarityUtils.cosineSimilarity(docVec, queryVec)
->>>>>>> 29e3c07 (PR3: Extended Voyage model support and improved ModelSelector logic)
-||||||| parent of ad62d21 (Add dynamic chunking and logging to embedding pipeline)
-  embeddingProvider.embed(request) match {
-    case Right(response) =>
-      val docVec = response.vectors.head
-      val queryVec = response.vectors.last
-      val score = SimilarityUtils.cosineSimilarity(docVec, queryVec)
-=======
-        LoggerUtils.info(s"Generating embedding for ${inputs.size} input(s)...")
->>>>>>> ad62d21 (Add dynamic chunking and logging to embedding pipeline)
-
-<<<<<<< HEAD
-<<<<<<< HEAD
-    extractedEither match {
-      case Left(error: ExtractorError) =>
-        logger.error(s"[ExtractorError] ${error.message} (type: ${error.`type`}, path: ${error.path})")
-        return
-||||||| parent of 29e3c07 (PR3: Extended Voyage model support and improved ModelSelector logic)
-      println(s"Similarity Score: $score")
-      println(s"Top 10 values of docVec: ${docVec.take(10).mkString(", ")}")
-=======
-      println(s"\nProvider: $provider")
-      println(s"Model Used: ${selectedModel.name}")
-      println(f"Similarity Score: $score%.4f")
-      println(s"Top 10 values of docVec: ${docVec.take(10).mkString(", ")}")
->>>>>>> 29e3c07 (PR3: Extended Voyage model support and improved ModelSelector logic)
-||||||| parent of ad62d21 (Add dynamic chunking and logging to embedding pipeline)
-      println(s"\nProvider: $provider")
-      println(s"Model Used: ${selectedModel.name}")
-      println(f"Similarity Score: $score%.4f")
-      println(s"Top 10 values of docVec: ${docVec.take(10).mkString(", ")}")
-=======
-        val request = EmbeddingRequest(
-          input = inputs :+ query,  // include query for similarity
-          model = org.llm4s.llmconnect.utils.ModelSelector.selectModel()
-        )
->>>>>>> ad62d21 (Add dynamic chunking and logging to embedding pipeline)
-
-<<<<<<< HEAD
-<<<<<<< HEAD
-      case Right(text) =>
-        val inputs: Seq[String] = if (EmbeddingConfig.chunkingEnabled) {
-          logger.info(s"\nChunking enabled. Using size=${EmbeddingConfig.chunkSize}, overlap=${EmbeddingConfig.chunkOverlap}")
-          ChunkingUtils.chunkText(text, EmbeddingConfig.chunkSize, EmbeddingConfig.chunkOverlap)
-        } else {
-          logger.info("\nChunking disabled. Proceeding with full text.")
-          Seq(text)
-        }
-
-||||||| parent of 0013d53 (LoggerUtils to SLf4J logger)
-        LoggerUtils.info(s"Generating embedding for ${inputs.size} input(s)...")
-=======
->>>>>>> 0013d53 (LoggerUtils to SLf4J logger)
-        logger.info(s"\nGenerating embedding for ${inputs.size} input(s)...")
-||||||| parent of 8bd3f68 (update: embedx-v2 on multimedia data)
-        logger.info(s"\nGenerating embedding for ${inputs.size} input(s)...")
-=======
     perFileRows.foreach { case (name, rows) =>
       println(renderFileSection(name, rows))
     }
->>>>>>> 8bd3f68 (update: embedx-v2 on multimedia data)
 
-<<<<<<< HEAD
-        val request = EmbeddingRequest(
-          input = inputs :+ query,  // include query for similarity
-          model = org.llm4s.llmconnect.utils.ModelSelector.selectModel()
-        )
-
-        val client = EmbeddingClient.fromConfig()
-        val response = client.embed(request)
-
-        response match {
-          case Right(result) =>
-            logger.info(s"\nEmbedding response metadata:\n${result.metadata}")
-<<<<<<< HEAD
-
-            // Log each embedding vector (first 10 dims only for brevity)
-            result.embeddings.zipWithIndex.foreach { case (vec, idx) =>
-              val label = if (idx < inputs.size) s"Chunk ${idx + 1}" else "Query"
-              logger.info(s"\n[$label] Embedding: ${vec.take(10).mkString(", ")} ... [${vec.length} dims]")
-            }
-
-            // Log cosine similarity between first chunk and query
-            val similarity = SimilarityUtils.cosineSimilarity(
-              result.embeddings.head,
-              result.embeddings.last
-            )
-            logger.info(f"\nCosine similarity between first doc chunk and query: $similarity%.4f")
-
-          case Left(err) =>
-            logger.error(s"\n[EmbeddingError] ${err.provider}: ${err.message}")
-        }
-||||||| parent of 8bd3f68 (update: embedx-v2 on multimedia data)
-        val request = EmbeddingRequest(
-          input = inputs :+ query,  // include query for similarity
-          model = org.llm4s.llmconnect.utils.ModelSelector.selectModel()
-        )
-
-        val client = EmbeddingClient.fromConfig()
-        val response = client.embed(request)
-
-        response match {
-          case Right(result) =>
-            logger.info(s"\nEmbedding response metadata:\n${result.metadata}")
-
-            // Log each embedding vector (first 10 dims only for brevity)
-            result.embeddings.zipWithIndex.foreach { case (vec, idx) =>
-              val label = if (idx < inputs.size) s"Chunk ${idx + 1}" else "Query"
-              logger.info(s"\n[$label] Embedding: ${vec.take(10).mkString(", ")} ... [${vec.length} dims]")
-            }
-
-            // Log cosine similarity between first chunk and query
-            val similarity = SimilarityUtils.cosineSimilarity(
-              result.embeddings.head,
-              result.embeddings.last
-            )
-            logger.info(f"\nCosine similarity between first doc chunk and query: $similarity%.4f")
-
-          case Left(err) =>
-            logger.error(s"\n[EmbeddingError] ${err.provider}: ${err.message}")
-        }
-=======
     if (SHOW_GLOBAL_TOP && globalText.nonEmpty) {
       val top = globalText.sortBy(r => -r.similarity.getOrElse(Double.NegativeInfinity)).take(GLOBAL_TOPK).toSeq
       println(renderGlobalTop(top))
->>>>>>> 8bd3f68 (update: embedx-v2 on multimedia data)
     }
-<<<<<<< HEAD
-||||||| parent of 29e3c07 (PR3: Extended Voyage model support and improved ModelSelector logic)
-    case Left(error) =>
-      println(s"Embedding failed from [${error.provider}]: ${error.message}")
-      error.code.foreach(code => println(s"Status code: $code"))
-=======
-    case Left(error) =>
-      println(s"\nEmbedding failed from [${error.provider}]: ${error.message}")
-      error.code.foreach(code => println(s"Status code: $code"))
->>>>>>> 29e3c07 (PR3: Extended Voyage model support and improved ModelSelector logic)
-||||||| parent of ad62d21 (Add dynamic chunking and logging to embedding pipeline)
-    case Left(error) =>
-      println(s"\nEmbedding failed from [${error.provider}]: ${error.message}")
-      error.code.foreach(code => println(s"Status code: $code"))
-=======
-        val client = EmbeddingClient.fromConfig()
-        val response = client.embed(request)
-
-        response match {
-          case Right(result) =>
-            LoggerUtils.info(s"Embedding response metadata:\n${result.metadata}")
-||||||| parent of 0013d53 (LoggerUtils to SLf4J logger)
-            LoggerUtils.info(s"Embedding response metadata:\n${result.metadata}")
-=======
->>>>>>> 0013d53 (LoggerUtils to SLf4J logger)
-
-            // Log each embedding vector (first 10 dims only for brevity)
-            result.embeddings.zipWithIndex.foreach { case (vec, idx) =>
-              val label = if (idx < inputs.size) s"Chunk ${idx + 1}" else "Query"
-              logger.info(s"\n[$label] Embedding: ${vec.take(10).mkString(", ")} ... [${vec.length} dims]")
-            }
-
-            // Log cosine similarity between first chunk and query
-            val similarity = SimilarityUtils.cosineSimilarity(
-              result.embeddings.head,
-              result.embeddings.last
-            )
-            logger.info(f"\nCosine similarity between first doc chunk and query: $similarity%.4f")
-
-          case Left(err) =>
-            logger.error(s"\n[EmbeddingError] ${err.provider}: ${err.message}")
-        }
-    }
->>>>>>> ad62d21 (Add dynamic chunking and logging to embedding pipeline)
-||||||| parent of e65bcd6 (Embedx-v2: CLI report; non-text marked as stubs)
-=======
 
     println(renderSummary(
       files = fileCount,
@@ -443,28 +104,27 @@ object EmbeddingExample {
       errors = errors.toSeq,
       perFileRows = perFileRows.flatMap(_._2).toSeq
     ))
->>>>>>> e65bcd6 (Embedx-v2: CLI report; non-text marked as stubs)
   }
 
   // ---------------- Model for printing ----------------
   final case class Row(
-                        file: String,
-                        id: String,
-                        modality: String,
-                        dim: Int,
-                        model: String,
-                        similarity: Option[Double],
-                        topDims: Seq[(Int, Float)],
-                        provider: String,
-                        mime: String
-                      )
+    file: String,
+    id: String,
+    modality: String,
+    dim: Int,
+    model: String,
+    similarity: Option[Double],
+    topDims: Seq[(Int, Float)],
+    provider: String,
+    mime: String
+  )
 
   private def toRows(
-                      fileName: String,
-                      vecs: Seq[EmbeddingVector],
-                      qOpt: Option[Seq[Double]],
-                      topDims: Int
-                    ): Seq[Row] = {
+    fileName: String,
+    vecs: Seq[EmbeddingVector],
+    qOpt: Option[Seq[Double]],
+    topDims: Int
+  ): Seq[Row] = {
     def topKAbs(values: Array[Float], k: Int): Seq[(Int, Float)] = {
       val withIdx: Array[(Int, Float)] =
         values.iterator.zipWithIndex.map { case (v, i) => (i, math.abs(v)) }.toArray
@@ -502,9 +162,9 @@ object EmbeddingExample {
   }
 
   // ---------------- Inputs ----------------
-  private def parseTargets(): Seq[Path] = {
-    val multi  = sys.env.get("EMBEDDING_INPUT_PATHS")
-    val single = sys.env.get("EMBEDDING_INPUT_PATH")
+  private def parseTargets(config: ConfigReader): Seq[Path] = {
+    val multi  = config.get("EMBEDDING_INPUT_PATHS")
+    val single = config.get("EMBEDDING_INPUT_PATH")
     val raw: Seq[String] =
       multi.map(splitList).getOrElse(single.toSeq)
 
@@ -519,9 +179,9 @@ object EmbeddingExample {
   private def splitList(s: String): Seq[String] = s.split("[,;]").toSeq
 
   // ---------------- Query embed cache ----------------
-  private def embedQueryOnce(client: EmbeddingClient, query: String): Option[Seq[Double]] = {
+  private def embedQueryOnce(client: EmbeddingClient, query: String, config: ConfigReader): Option[Seq[Double]] = {
     if (query == null || query.trim.isEmpty) return None
-    val model = ModelSelector.selectModel(Text)
+    val model = ModelSelector.selectModel(Text, config)
     val req   = EmbeddingRequest(Seq(query), model)
     client.embed(req) match {
       case Right(resp) if resp.embeddings.nonEmpty =>
@@ -537,7 +197,7 @@ object EmbeddingExample {
   }
 
   // ---------------- Rendering helpers ----------------
-  private def renderHeader(provider: String, query: String): String = {
+  private def renderHeader(provider: String, query: String, config: ConfigReader): String = {
     val time = ZonedDateTime.now(ZoneId.systemDefault()).toString
     val qStr = Option(query).map(_.trim).filter(_.nonEmpty).map(q => s""" | query: "$q"""").getOrElse("")
     val lines = Seq(
@@ -545,7 +205,7 @@ object EmbeddingExample {
       bold("=" * TABLE_WIDTH),
       bold(s"Embedding Report  |  provider: $provider$qStr"),
       s"generated: $time",
-      s"chunking: enabled=${EmbeddingConfig.chunkingEnabled}  size=${EmbeddingConfig.chunkSize}  overlap=${EmbeddingConfig.chunkOverlap}",
+      s"chunking: enabled=${EmbeddingConfig.chunkingEnabled(config)}  size=${EmbeddingConfig.chunkSize(config)}  overlap=${EmbeddingConfig.chunkOverlap(config)}",
       s"flags: SHOW_GLOBAL_TOP=$SHOW_GLOBAL_TOP  GLOBAL_TOPK=$GLOBAL_TOPK  COLOR=$COLOR_ENABLED",
       bold("=" * TABLE_WIDTH)
     )

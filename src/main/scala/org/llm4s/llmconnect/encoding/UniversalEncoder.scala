@@ -1,5 +1,7 @@
 package org.llm4s.llmconnect.encoding
 
+import org.llm4s.config.ConfigReader
+import org.llm4s.config.ConfigReader.LLMConfig
 import org.llm4s.llmconnect.model._
 import org.llm4s.llmconnect.config._
 import org.llm4s.llmconnect.utils.{ ChunkingUtils, ModelSelector }
@@ -18,17 +20,18 @@ object UniversalEncoder {
 
   /** Entry point: detect MIME → extract → encode → normalized vectors + metadata. */
   def encodeFromPath(path: Path, client: EmbeddingClient): Either[EmbeddingError, Seq[EmbeddingVector]] = {
-    val f = path.toFile
+    val config = LLMConfig() // Create default config
+    val f      = path.toFile
     if (!f.exists() || !f.isFile) return Left(EmbeddingError(None, s"File not found: $path", "extractor"))
 
     val mime = Try(tika.detect(f)).getOrElse("application/octet-stream")
     logger.debug(s"[UniversalEncoder] MIME detected: $mime")
 
     // Reuse canonical MIME logic from UniversalExtractor (no duplication).
-    if (UniversalExtractor.isTextLike(mime)) encodeTextFile(f, mime, client)
-    else if (mime.startsWith("image/")) encodeImageFile(f, mime)
-    else if (mime.startsWith("audio/")) encodeAudioFile(f, mime)
-    else if (mime.startsWith("video/")) encodeVideoFile(f, mime)
+    if (UniversalExtractor.isTextLike(mime)) encodeTextFile(f, mime, client, config)
+    else if (mime.startsWith("image/")) encodeImageFile(f, mime, config)
+    else if (mime.startsWith("audio/")) encodeAudioFile(f, mime, config)
+    else if (mime.startsWith("video/")) encodeVideoFile(f, mime, config)
     else Left(EmbeddingError(None, s"Unsupported MIME for encoding: $mime", "encoder"))
   }
 
@@ -36,20 +39,21 @@ object UniversalEncoder {
   private def encodeTextFile(
     file: File,
     mime: String,
-    client: EmbeddingClient
+    client: EmbeddingClient,
+    config: ConfigReader
   ): Either[EmbeddingError, Seq[EmbeddingVector]] =
     UniversalExtractor.extract(file.getAbsolutePath) match {
       case Left(e) => Left(EmbeddingError(None, e.message, "extractor"))
       case Right(text) =>
         val inputs: Seq[String] =
-          if (EmbeddingConfig.chunkingEnabled) {
-            val size = EmbeddingConfig.chunkSize
-            val ovlp = EmbeddingConfig.chunkOverlap
+          if (EmbeddingConfig.chunkingEnabled(config)) {
+            val size = EmbeddingConfig.chunkSize(config)
+            val ovlp = EmbeddingConfig.chunkOverlap(config)
             logger.debug(s"[UniversalEncoder] Chunking text: size=$size overlap=$ovlp")
             ChunkingUtils.chunkText(text, size, ovlp)
           } else Seq(text)
 
-        val model = ModelSelector.selectModel(Text)
+        val model = ModelSelector.selectModel(Text, config)
         val req   = EmbeddingRequest(input = inputs, model = model)
 
         client.embed(req).map { r =>
@@ -62,7 +66,7 @@ object UniversalEncoder {
               dim = dim,
               values = l2(vec.map(_.toFloat).toArray),
               meta = Map(
-                "provider" -> r.metadata.getOrElse("provider", EmbeddingConfig.activeProvider),
+                "provider" -> r.metadata.getOrElse("provider", EmbeddingConfig.activeProvider(config)),
                 "mime"     -> mime,
                 "count"    -> r.metadata.getOrElse("count", inputs.size.toString)
               )
@@ -85,9 +89,13 @@ object UniversalEncoder {
     )
 
   // ---------------- IMAGE (stub gated behind demo flag) ----------------
-  private def encodeImageFile(file: File, mime: String): Either[EmbeddingError, Seq[EmbeddingVector]] = {
+  private def encodeImageFile(
+    file: File,
+    mime: String,
+    config: ConfigReader
+  ): Either[EmbeddingError, Seq[EmbeddingVector]] = {
     if (!experimentalOn) return notImpl("Image")
-    val model = ModelSelector.selectModel(Image)
+    val model = ModelSelector.selectModel(Image, config)
     val dim   = model.dimensions
     val seed  = stableSeed(file)
     val raw   = fillDeterministic(dim, seed)
@@ -106,9 +114,13 @@ object UniversalEncoder {
   }
 
   // ---------------- AUDIO (stub gated behind demo flag) ----------------
-  private def encodeAudioFile(file: File, mime: String): Either[EmbeddingError, Seq[EmbeddingVector]] = {
+  private def encodeAudioFile(
+    file: File,
+    mime: String,
+    config: ConfigReader
+  ): Either[EmbeddingError, Seq[EmbeddingVector]] = {
     if (!experimentalOn) return notImpl("Audio")
-    val model = ModelSelector.selectModel(Audio)
+    val model = ModelSelector.selectModel(Audio, config)
     val dim   = model.dimensions
     val seed  = stableSeed(file) ^ 0x9e3779b97f4a7c15L
     val raw   = fillDeterministic(dim, seed)
@@ -127,9 +139,13 @@ object UniversalEncoder {
   }
 
   // ---------------- VIDEO (stub gated behind demo flag) ----------------
-  private def encodeVideoFile(file: File, mime: String): Either[EmbeddingError, Seq[EmbeddingVector]] = {
+  private def encodeVideoFile(
+    file: File,
+    mime: String,
+    config: ConfigReader
+  ): Either[EmbeddingError, Seq[EmbeddingVector]] = {
     if (!experimentalOn) return notImpl("Video")
-    val model = ModelSelector.selectModel(Video)
+    val model = ModelSelector.selectModel(Video, config)
     val dim   = model.dimensions
     val seed  = stableSeed(file) ^ 0xc2b2ae3d27d4eb4fL
     val raw   = fillDeterministic(dim, seed)

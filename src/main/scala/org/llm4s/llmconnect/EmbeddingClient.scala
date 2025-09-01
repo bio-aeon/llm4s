@@ -1,27 +1,10 @@
 package org.llm4s.llmconnect
 
+import org.llm4s.config.ConfigReader
 import org.llm4s.llmconnect.config.EmbeddingConfig
-<<<<<<< HEAD
-import org.llm4s.llmconnect.model.{ EmbeddingRequest, EmbeddingResponse, EmbeddingError, EmbeddingVector }
-import org.llm4s.llmconnect.provider.{ EmbeddingProvider, OpenAIEmbeddingProvider, VoyageAIEmbeddingProvider }
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-||||||| parent of 8bd3f68 (update: embedx-v2 on multimedia data)
-=======
-||||||| parent of e65bcd6 (Embedx-v2: CLI report; non-text marked as stubs)
-import org.llm4s.llmconnect.model.{ EmbeddingRequest, EmbeddingResponse, EmbeddingError, EmbeddingVector }
-import org.llm4s.llmconnect.provider.{ EmbeddingProvider, OpenAIEmbeddingProvider, VoyageAIEmbeddingProvider }
-=======
->>>>>>> e65bcd6 (Embedx-v2: CLI report; non-text marked as stubs)
-import org.llm4s.llmconnect.encoding.UniversalEncoder
-<<<<<<< HEAD
->>>>>>> 8bd3f68 (update: embedx-v2 on multimedia data)
-||||||| parent of e65bcd6 (Embedx-v2: CLI report; non-text marked as stubs)
-=======
 import org.llm4s.llmconnect.model.{ EmbeddingError, EmbeddingRequest, EmbeddingResponse, EmbeddingVector }
 import org.llm4s.llmconnect.provider.{ EmbeddingProvider, OpenAIEmbeddingProvider, VoyageAIEmbeddingProvider }
->>>>>>> e65bcd6 (Embedx-v2: CLI report; non-text marked as stubs)
+import org.llm4s.llmconnect.encoding.UniversalEncoder
 import org.slf4j.LoggerFactory
 
 import java.nio.file.Path
@@ -31,34 +14,7 @@ class EmbeddingClient(provider: EmbeddingProvider) {
 
   /** Text embeddings via the configured HTTP provider. */
   def embed(request: EmbeddingRequest): Either[EmbeddingError, EmbeddingResponse] = {
-<<<<<<< HEAD
-    logger.info(s"[EmbeddingClient] Embedding input with model ${request.model.name}")
-||||||| parent of ad62d21 (Add dynamic chunking and logging to embedding pipeline)
-=======
-import org.llm4s.llmconnect.utils.LoggerUtils
-||||||| parent of 0013d53 (LoggerUtils to SLf4J logger)
-import org.llm4s.llmconnect.utils.LoggerUtils
-=======
-import org.slf4j.LoggerFactory
->>>>>>> 0013d53 (LoggerUtils to SLf4J logger)
-
-class EmbeddingClient(provider: EmbeddingProvider) {
-  private val logger = LoggerFactory.getLogger(getClass)
-
-  def embed(request: EmbeddingRequest): Either[EmbeddingError, EmbeddingResponse] = {
-<<<<<<< HEAD
-    LoggerUtils.info(s"[EmbeddingClient] Embedding input with model ${request.model.name}")
->>>>>>> ad62d21 (Add dynamic chunking and logging to embedding pipeline)
-||||||| parent of 0013d53 (LoggerUtils to SLf4J logger)
-    LoggerUtils.info(s"[EmbeddingClient] Embedding input with model ${request.model.name}")
-=======
-    logger.info(s"[EmbeddingClient] Embedding input with model ${request.model.name}")
->>>>>>> 0013d53 (LoggerUtils to SLf4J logger)
-||||||| parent of e65bcd6 (Embedx-v2: CLI report; non-text marked as stubs)
-    logger.info(s"[EmbeddingClient] Embedding input with model ${request.model.name}")
-=======
     logger.debug(s"[EmbeddingClient] Embedding with model=${request.model.name}, inputs=${request.input.size}")
->>>>>>> e65bcd6 (Embedx-v2: CLI report; non-text marked as stubs)
     provider.embed(request)
   }
 
@@ -68,64 +24,25 @@ class EmbeddingClient(provider: EmbeddingProvider) {
 }
 
 object EmbeddingClient {
-<<<<<<< HEAD
-<<<<<<< HEAD
   private val logger = LoggerFactory.getLogger(getClass)
 
-<<<<<<< HEAD
-||||||| parent of ad62d21 (Add dynamic chunking and logging to embedding pipeline)
-  def fromConfig(): EmbeddingProvider =
-    EmbeddingConfig.activeProvider match {
-=======
->>>>>>> ad62d21 (Add dynamic chunking and logging to embedding pipeline)
-||||||| parent of 0013d53 (LoggerUtils to SLf4J logger)
-=======
-  private val logger = LoggerFactory.getLogger(getClass)
-
->>>>>>> 0013d53 (LoggerUtils to SLf4J logger)
-||||||| parent of e65bcd6 (Embedx-v2: CLI report; non-text marked as stubs)
-=======
   /**
    * Legacy factory (back-compat): throws on unsupported provider.
    * Prefer [[fromConfigEither]] in new code to avoid exceptions on misconfig.
    */
->>>>>>> e65bcd6 (Embedx-v2: CLI report; non-text marked as stubs)
-  def fromConfig(): EmbeddingClient = {
-    val providerName = EmbeddingConfig.activeProvider.toLowerCase
+  def fromConfig(config: ConfigReader): EmbeddingClient = {
+    val providerName = EmbeddingConfig.activeProvider(config).toLowerCase
 
     val provider: EmbeddingProvider = providerName match {
-      case "openai" => OpenAIEmbeddingProvider
-      case "voyage" => VoyageAIEmbeddingProvider
+      case "openai" => OpenAIEmbeddingProvider(config)
+      case "voyage" => VoyageAIEmbeddingProvider(config)
       case unknown =>
         val msg = s"[EmbeddingClient] Unsupported embedding provider: $unknown"
-<<<<<<< HEAD
-<<<<<<< HEAD
         logger.error(msg)
-||||||| parent of ad62d21 (Add dynamic chunking and logging to embedding pipeline)
-      case other    => throw new RuntimeException(s"Unknown embedding provider: $other")
-=======
-        LoggerUtils.error(msg)
->>>>>>> ad62d21 (Add dynamic chunking and logging to embedding pipeline)
-||||||| parent of 0013d53 (LoggerUtils to SLf4J logger)
-        LoggerUtils.error(msg)
-=======
-        logger.error(msg)
->>>>>>> 0013d53 (LoggerUtils to SLf4J logger)
         throw new RuntimeException(msg)
     }
 
-<<<<<<< HEAD
-<<<<<<< HEAD
     logger.info(s"[EmbeddingClient] Initialized with provider: $providerName")
-||||||| parent of ad62d21 (Add dynamic chunking and logging to embedding pipeline)
-=======
-    LoggerUtils.info(s"[EmbeddingClient] Initialized with provider: $providerName")
->>>>>>> ad62d21 (Add dynamic chunking and logging to embedding pipeline)
-||||||| parent of 0013d53 (LoggerUtils to SLf4J logger)
-    LoggerUtils.info(s"[EmbeddingClient] Initialized with provider: $providerName")
-=======
-    logger.info(s"[EmbeddingClient] Initialized with provider: $providerName")
->>>>>>> 0013d53 (LoggerUtils to SLf4J logger)
     new EmbeddingClient(provider)
   }
 
@@ -133,11 +50,11 @@ object EmbeddingClient {
    * Safe factory: returns Either instead of throwing on misconfiguration.
    * Useful for samples/CLIs where we want a clean error path.
    */
-  def fromConfigEither(): Either[EmbeddingError, EmbeddingClient] = {
-    val providerName = EmbeddingConfig.activeProvider.toLowerCase
+  def fromConfigEither(config: ConfigReader): Either[EmbeddingError, EmbeddingClient] = {
+    val providerName = EmbeddingConfig.activeProvider(config).toLowerCase
     val providerOpt: Option[EmbeddingProvider] = providerName match {
-      case "openai" => Some(OpenAIEmbeddingProvider)
-      case "voyage" => Some(VoyageAIEmbeddingProvider)
+      case "openai" => Some(OpenAIEmbeddingProvider(config))
+      case "voyage" => Some(VoyageAIEmbeddingProvider(config))
       case _        => None
     }
 

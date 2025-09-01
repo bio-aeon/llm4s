@@ -9,6 +9,8 @@ import org.llm4s.llmconnect.provider.EmbeddingProvider
 import org.llm4s.llmconnect.EmbeddingClient
 import org.llm4s.llmconnect.utils.ModelSelector
 import org.llm4s.llmconnect.config.{ EmbeddingConfig, ModelDimensionRegistry }
+import org.llm4s.config.ConfigReader
+import org.llm4s.config.ConfigReader.LLMConfig
 
 import java.nio.file.{ Files, Path }
 import java.nio.ByteBuffer
@@ -136,13 +138,14 @@ class EmbedxV2Spec extends AnyFunSuite with Matchers {
   }
 
   test("Local model dimensions (Image/Audio/Video) match registry") {
-    val imgModel = ModelSelector.selectModel(Image)
-    val audModel = ModelSelector.selectModel(Audio)
-    val vidModel = ModelSelector.selectModel(Video)
+    val config   = LLMConfig()
+    val imgModel = ModelSelector.selectModel(Image, config)
+    val audModel = ModelSelector.selectModel(Audio, config)
+    val vidModel = ModelSelector.selectModel(Video, config)
 
-    imgModel.dimensions shouldBe ModelDimensionRegistry.getDimension("local", EmbeddingConfig.imageModel)
-    audModel.dimensions shouldBe ModelDimensionRegistry.getDimension("local", EmbeddingConfig.audioModel)
-    vidModel.dimensions shouldBe ModelDimensionRegistry.getDimension("local", EmbeddingConfig.videoModel)
+    imgModel.dimensions shouldBe ModelDimensionRegistry.getDimension("local", EmbeddingConfig.imageModel(config))
+    audModel.dimensions shouldBe ModelDimensionRegistry.getDimension("local", EmbeddingConfig.audioModel(config))
+    vidModel.dimensions shouldBe ModelDimensionRegistry.getDimension("local", EmbeddingConfig.videoModel(config))
   }
 
   test("EmbeddingResponse back-compat: vectors alias equals embeddings") {

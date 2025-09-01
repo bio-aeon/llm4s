@@ -2,6 +2,7 @@ package org.llm4s.agent
 
 import org.llm4s.llmconnect.model._
 import org.llm4s.toolapi.ToolRegistry
+import upickle.default.{ ReadWriter => RW, readwriter }
 
 /**
  * Represents the current state of an agent run
@@ -58,11 +59,11 @@ case class AgentState(
     conversation.messages.zipWithIndex.foreach { case (message, index) =>
       val step = index + 1
       val roleMarker = message.role match {
-        case "user"      => "👤 USER"
-        case "assistant" => "🤖 ASSISTANT"
-        case "system"    => "⚙️ SYSTEM"
-        case "tool"      => "🛠️ TOOL"
-        case _           => s"[${message.role.toUpperCase}]"
+        case MessageRole.User      => "👤 USER"
+        case MessageRole.Assistant => "🤖 ASSISTANT"
+        case MessageRole.System    => "⚙️ SYSTEM"
+        case MessageRole.Tool      => "🛠️ TOOL"
+        case _                     => s"[${message.role.name.toUpperCase}]"
       }
 
       println(s"STEP $step: $roleMarker")
@@ -101,6 +102,11 @@ case class AgentState(
   }
 }
 
+object AgentState {
+  // We can't automatically serialize AgentState because it contains ToolRegistry (with function references)
+  // Serialization is handled manually in SessionManager
+}
+
 /**
  * Status of the agent run
  */
@@ -111,4 +117,26 @@ object AgentStatus {
   case object WaitingForTools      extends AgentStatus // Waiting for tool execution
   case object Complete             extends AgentStatus
   case class Failed(error: String) extends AgentStatus
+
+  // Custom serialization for AgentStatus since sealed trait derivation can be tricky
+  implicit val rw: RW[AgentStatus] = readwriter[ujson.Value].bimap[AgentStatus](
+    {
+      case InProgress      => ujson.Str("InProgress")
+      case WaitingForTools => ujson.Str("WaitingForTools")
+      case Complete        => ujson.Str("Complete")
+      case Failed(error)   => ujson.Obj("type" -> ujson.Str("Failed"), "error" -> ujson.Str(error))
+    },
+    {
+      case ujson.Str("InProgress")      => InProgress
+      case ujson.Str("WaitingForTools") => WaitingForTools
+      case ujson.Str("Complete")        => Complete
+      case obj: ujson.Obj =>
+        obj.obj.get("type") match {
+          case Some(ujson.Str("Failed")) =>
+            Failed(obj.obj.get("error").map(_.str).getOrElse("Unknown error"))
+          case _ => Failed("Unknown status format")
+        }
+      case _ => Failed("Invalid status format")
+    }
+  )
 }
