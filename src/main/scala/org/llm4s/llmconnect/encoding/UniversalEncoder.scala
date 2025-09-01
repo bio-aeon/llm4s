@@ -18,10 +18,20 @@ object UniversalEncoder {
   private val logger = LoggerFactory.getLogger(getClass)
   private val tika   = new Tika()
 
+  // Maximum dimension size for stub embeddings to prevent OOM in tests
+  private val MAX_STUB_DIMENSION = 8192
+
   /** Entry point: detect MIME → extract → encode → normalized vectors + metadata. */
-  def encodeFromPath(path: Path, client: EmbeddingClient): Either[EmbeddingError, Seq[EmbeddingVector]] = {
-    val config = LLMConfig() // Create default config
-    val f      = path.toFile
+  def encodeFromPath(path: Path, client: EmbeddingClient): Either[EmbeddingError, Seq[EmbeddingVector]] =
+    encodeFromPath(path, client, LLMConfig())
+
+  /** Entry point with explicit config for better testability and error handling. */
+  def encodeFromPath(
+    path: Path,
+    client: EmbeddingClient,
+    config: ConfigReader
+  ): Either[EmbeddingError, Seq[EmbeddingVector]] = {
+    val f = path.toFile
     if (!f.exists() || !f.isFile) return Left(EmbeddingError(None, s"File not found: $path", "extractor"))
 
     val mime = Try(tika.detect(f)).getOrElse("application/octet-stream")
@@ -97,15 +107,17 @@ object UniversalEncoder {
     if (!experimentalOn) return notImpl("Image")
     val model = ModelSelector.selectModel(Image, config)
     val dim   = model.dimensions
-    val seed  = stableSeed(file)
-    val raw   = fillDeterministic(dim, seed)
+    // Limit dimension to prevent OOM in tests (max 8K dimensions)
+    val safeDim = math.min(dim, MAX_STUB_DIMENSION)
+    val seed    = stableSeed(file)
+    val raw     = fillDeterministic(safeDim, seed)
     Right(
       Seq(
         EmbeddingVector(
           id = file.getName,
           modality = Image,
           model = model.name,
-          dim = dim,
+          dim = safeDim,
           values = l2(raw),
           meta = Map("mime" -> mime, "experimental" -> "true", "provider" -> "local-experimental")
         )
@@ -122,15 +134,17 @@ object UniversalEncoder {
     if (!experimentalOn) return notImpl("Audio")
     val model = ModelSelector.selectModel(Audio, config)
     val dim   = model.dimensions
-    val seed  = stableSeed(file) ^ 0x9e3779b97f4a7c15L
-    val raw   = fillDeterministic(dim, seed)
+    // Limit dimension to prevent OOM in tests (max 8K dimensions)
+    val safeDim = math.min(dim, MAX_STUB_DIMENSION)
+    val seed    = stableSeed(file) ^ 0x9e3779b97f4a7c15L
+    val raw     = fillDeterministic(safeDim, seed)
     Right(
       Seq(
         EmbeddingVector(
           id = file.getName,
           modality = Audio,
           model = model.name,
-          dim = dim,
+          dim = safeDim,
           values = l2(raw),
           meta = Map("mime" -> mime, "experimental" -> "true", "provider" -> "local-experimental")
         )
@@ -147,15 +161,17 @@ object UniversalEncoder {
     if (!experimentalOn) return notImpl("Video")
     val model = ModelSelector.selectModel(Video, config)
     val dim   = model.dimensions
-    val seed  = stableSeed(file) ^ 0xc2b2ae3d27d4eb4fL
-    val raw   = fillDeterministic(dim, seed)
+    // Limit dimension to prevent OOM in tests (max 8K dimensions)
+    val safeDim = math.min(dim, MAX_STUB_DIMENSION)
+    val seed    = stableSeed(file) ^ 0xc2b2ae3d27d4eb4fL
+    val raw     = fillDeterministic(safeDim, seed)
     Right(
       Seq(
         EmbeddingVector(
           id = file.getName,
           modality = Video,
           model = model.name,
-          dim = dim,
+          dim = safeDim,
           values = l2(raw),
           meta = Map("mime" -> mime, "experimental" -> "true", "provider" -> "local-experimental")
         )

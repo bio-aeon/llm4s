@@ -39,12 +39,16 @@ class EmbedxV2Spec extends AnyFunSuite with Matchers {
   private def experimentalOn: Boolean =
     sys.env.get("ENABLE_EXPERIMENTAL_STUBS").exists(_.trim.equalsIgnoreCase("true"))
 
-  private def withTempFile(prefix: String, suffix: String)(write: Path => Unit): Path = {
+  private def withTempFile[T](prefix: String, suffix: String)(use: Path => T): T = {
     val p = Files.createTempFile(prefix, suffix)
-    try write(p)
-    finally ()
-    p.toFile.deleteOnExit()
-    p
+    try
+      use(p)
+    finally
+      try
+        Files.deleteIfExists(p)
+      catch {
+        case _: Exception => // Best effort cleanup
+      }
   }
 
   private def writeDummyPng(p: Path): Unit = {
@@ -92,13 +96,20 @@ class EmbedxV2Spec extends AnyFunSuite with Matchers {
   test("Non-text: image/audio/video → 501 by default (stubs disabled)") {
     if (experimentalOn) cancel("ENABLE_EXPERIMENTAL_STUBS=true in env; skipping default-501 test.")
 
-    val png = withTempFile("embedx_png_", ".png")(writeDummyPng)
-    val wav = withTempFile("embedx_wav_", ".wav")(writeDummyWav)
-    val mp4 = withTempFile("embedx_mp4_", ".mp4")(writeDummyMp4)
+    val imgRes = withTempFile("embedx_png_", ".png") { png =>
+      writeDummyPng(png)
+      UniversalEncoder.encodeFromPath(png, stubClient)
+    }
 
-    val imgRes = UniversalEncoder.encodeFromPath(png, stubClient)
-    val audRes = UniversalEncoder.encodeFromPath(wav, stubClient)
-    val vidRes = UniversalEncoder.encodeFromPath(mp4, stubClient)
+    val audRes = withTempFile("embedx_wav_", ".wav") { wav =>
+      writeDummyWav(wav)
+      UniversalEncoder.encodeFromPath(wav, stubClient)
+    }
+
+    val vidRes = withTempFile("embedx_mp4_", ".mp4") { mp4 =>
+      writeDummyMp4(mp4)
+      UniversalEncoder.encodeFromPath(mp4, stubClient)
+    }
 
     imgRes.isLeft shouldBe true
     audRes.isLeft shouldBe true
@@ -116,13 +127,20 @@ class EmbedxV2Spec extends AnyFunSuite with Matchers {
   test("Experimental stubs: image/audio/video produce vectors and experimental=true") {
     if (!experimentalOn) cancel("ENABLE_EXPERIMENTAL_STUBS!=true; set it to run this test.")
 
-    val png = withTempFile("embedx_png_", ".png")(writeDummyPng)
-    val wav = withTempFile("embedx_wav_", ".wav")(writeDummyWav)
-    val mp4 = withTempFile("embedx_mp4_", ".mp4")(writeDummyMp4)
+    val imgRes = withTempFile("embedx_png_", ".png") { png =>
+      writeDummyPng(png)
+      UniversalEncoder.encodeFromPath(png, stubClient)
+    }
 
-    val imgRes = UniversalEncoder.encodeFromPath(png, stubClient)
-    val audRes = UniversalEncoder.encodeFromPath(wav, stubClient)
-    val vidRes = UniversalEncoder.encodeFromPath(mp4, stubClient)
+    val audRes = withTempFile("embedx_wav_", ".wav") { wav =>
+      writeDummyWav(wav)
+      UniversalEncoder.encodeFromPath(wav, stubClient)
+    }
+
+    val vidRes = withTempFile("embedx_mp4_", ".mp4") { mp4 =>
+      writeDummyMp4(mp4)
+      UniversalEncoder.encodeFromPath(mp4, stubClient)
+    }
 
     val img = imgRes.toOption.get; img.nonEmpty shouldBe true
     val aud = audRes.toOption.get; aud.nonEmpty shouldBe true

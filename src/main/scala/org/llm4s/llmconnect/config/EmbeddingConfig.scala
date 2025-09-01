@@ -38,10 +38,15 @@ object EmbeddingConfig {
 
   // ---------- Paths & query (now OPTIONAL to avoid static init failures) ----------
   // These were previously required and caused crashes when using EMBEDDING_INPUT_PATHS only.
-  // Default to empty; sample code or callers should read sys.env directly or handle the empty case.
-  def inputPath(config: ConfigReader): String  = loadOptionalEnv(EMBEDDING_INPUT_PATH, "")(config)
-  def inputPaths(config: ConfigReader): String = loadOptionalEnv("EMBEDDING_INPUT_PATHS", "")(config)
-  def query(config: ConfigReader): String      = loadOptionalEnv(EMBEDDING_QUERY, "")(config)
+  // Return Option types for better null safety and validation
+  def inputPath(config: ConfigReader): Option[String]  = loadOpt(EMBEDDING_INPUT_PATH)(config)
+  def inputPaths(config: ConfigReader): Option[String] = loadOpt("EMBEDDING_INPUT_PATHS")(config)
+  def query(config: ConfigReader): Option[String]      = loadOpt(EMBEDDING_QUERY)(config)
+
+  // Legacy compatibility methods - use the Option variants above when possible
+  def inputPathOrEmpty(config: ConfigReader): String  = inputPath(config).getOrElse("")
+  def inputPathsOrEmpty(config: ConfigReader): String = inputPaths(config).getOrElse("")
+  def queryOrEmpty(config: ConfigReader): String      = query(config).getOrElse("")
 
   // ---------- Text chunking ----------
   def chunkSize(config: ConfigReader): Int           = loadOptionalEnv(CHUNK_SIZE, "1000")(config).toInt
@@ -59,4 +64,26 @@ object EmbeddingConfig {
   def audioSampleRate(config: ConfigReader): Int      = loadOptionalEnv("AUDIO_SAMPLE_RATE", "16000")(config).toInt
   def audioWindowSeconds(config: ConfigReader): Int   = loadOptionalEnv("AUDIO_WINDOW_SECONDS", "5")(config).toInt
   def chunkOverlapRatio(config: ConfigReader): Double = loadOptionalEnv("CHUNK_OVERLAP_RATIO", "0.25")(config).toDouble
+
+  // ---------- Configuration validation ----------
+  /** Validates that a provider configuration has all required fields. */
+  def validateProviderConfig(config: EmbeddingProviderConfig): Either[String, EmbeddingProviderConfig] =
+    if (config.baseUrl.trim.isEmpty) Left("Provider baseUrl is required but was empty")
+    else if (config.model.trim.isEmpty) Left("Provider model is required but was empty")
+    else if (config.apiKey.trim.isEmpty) Left("Provider apiKey is required but was empty")
+    else Right(config)
+
+  /** Validates that required embedding configuration is present for the active provider. */
+  def validateConfig(config: ConfigReader): Either[String, String] =
+    try {
+      val provider = activeProvider(config)
+      val providerConfig = provider.toLowerCase match {
+        case "openai" => openAI(config)
+        case "voyage" => voyage(config)
+        case other    => return Left(s"Unknown embedding provider: $other")
+      }
+      validateProviderConfig(providerConfig).map(_ => provider)
+    } catch {
+      case e: RuntimeException => Left(e.getMessage)
+    }
 }
