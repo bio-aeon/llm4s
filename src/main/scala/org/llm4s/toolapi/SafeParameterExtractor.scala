@@ -12,6 +12,8 @@ import scala.annotation.tailrec
  * @param params The JSON parameters to extract from
  */
 case class SafeParameterExtractor(params: ujson.Value) {
+  // Helper case class to return both the value and available keys from parent
+  private case class NavigationResult(value: Option[ujson.Value], availableKeys: List[String])
   // Simple mode - returns string errors for backward compatibility
   def getString(path: String): Either[String, String] =
     extract(path, _.strOpt, "string")
@@ -77,18 +79,14 @@ case class SafeParameterExtractor(params: ujson.Value) {
       val pathParts = if (path.contains('.')) path.split('.').toList else List(path)
 
       navigateToValue(pathParts, params) match {
-        case Left(error) => Left(error)
-        case Right(None) =>
-          // Parameter is missing
-          val availableParams = params match {
-            case obj: ujson.Obj => obj.obj.keys.toList.sorted
-            case _              => Nil
-          }
-          Left(ToolParameterError.MissingParameter(path, expectedType, availableParams))
-        case Right(Some(ujson.Null)) =>
+        case Left(error)                                  => Left(error)
+        case Right(NavigationResult(None, availableKeys)) =>
+          // Parameter is missing - use the available keys from the parent object
+          Left(ToolParameterError.MissingParameter(path, expectedType, availableKeys))
+        case Right(NavigationResult(Some(ujson.Null), _)) =>
           // Parameter exists but is null
           Left(ToolParameterError.NullParameter(path, expectedType))
-        case Right(Some(value)) =>
+        case Right(NavigationResult(Some(value), _)) =>
           // Try to extract the value with the correct type
           extractor(value) match {
             case Some(result) => Right(result)
@@ -111,10 +109,10 @@ case class SafeParameterExtractor(params: ujson.Value) {
     val pathParts = if (path.contains('.')) path.split('.').toList else List(path)
 
     navigateToValue(pathParts, params) match {
-      case Left(error)             => Left(error)
-      case Right(None)             => Right(None) // Optional parameter missing is OK
-      case Right(Some(ujson.Null)) => Right(None) // Null for optional is OK
-      case Right(Some(value)) =>
+      case Left(error)                                  => Left(error)
+      case Right(NavigationResult(None, _))             => Right(None) // Optional parameter missing is OK
+      case Right(NavigationResult(Some(ujson.Null), _)) => Right(None) // Null for optional is OK
+      case Right(NavigationResult(Some(value), _)) =>
         extractor(value) match {
           case Some(result) => Right(Some(result))
           case None =>
@@ -128,16 +126,17 @@ case class SafeParameterExtractor(params: ujson.Value) {
   private def navigateToValue(
     pathParts: List[String],
     current: ujson.Value
-  ): Either[ToolParameterError, Option[ujson.Value]] = {
+  ): Either[ToolParameterError, NavigationResult] = {
 
     @tailrec
     def navigate(
       parts: List[String],
       value: ujson.Value,
-      traversedPath: List[String]
-    ): Either[ToolParameterError, Option[ujson.Value]] =
+      traversedPath: List[String],
+      parentKeys: List[String]
+    ): Either[ToolParameterError, NavigationResult] =
       parts match {
-        case Nil => Right(Some(value))
+        case Nil => Right(NavigationResult(Some(value), parentKeys))
         case head :: tail =>
           value match {
             case ujson.Null =>
@@ -150,13 +149,15 @@ case class SafeParameterExtractor(params: ujson.Value) {
                 )
               )
             case obj: ujson.Obj =>
+              val currentKeys = obj.obj.keys.toList.sorted
               obj.obj.get(head) match {
                 case Some(nextValue) =>
-                  navigate(tail, nextValue, traversedPath :+ head)
+                  navigate(tail, nextValue, traversedPath :+ head, currentKeys)
                 case None =>
                   if (tail.isEmpty) {
                     // This is the final parameter we're looking for
-                    Right(None)
+                    // Return the keys from the current object where the parameter is missing
+                    Right(NavigationResult(None, currentKeys))
                   } else {
                     // We're trying to navigate deeper but intermediate path is missing
                     val fullPath = (traversedPath :+ head).mkString(".")
@@ -164,7 +165,7 @@ case class SafeParameterExtractor(params: ujson.Value) {
                       ToolParameterError.MissingParameter(
                         fullPath,
                         "object",
-                        obj.obj.keys.toList.sorted
+                        currentKeys
                       )
                     )
                   }
@@ -191,7 +192,12 @@ case class SafeParameterExtractor(params: ujson.Value) {
           )
         )
       case _ =>
-        navigate(pathParts, current, Nil)
+        // Get the initial keys from the root object
+        val rootKeys = current match {
+          case obj: ujson.Obj => obj.obj.keys.toList.sorted
+          case _              => Nil
+        }
+        navigate(pathParts, current, Nil, rootKeys)
     }
   }
 

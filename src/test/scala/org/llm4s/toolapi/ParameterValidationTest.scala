@@ -136,9 +136,37 @@ class ParameterValidationTest extends AnyFlatSpec with Matchers {
     error should include("username")
     error should include("missing")
     error should include("available:")
-    // The error shows available properties at the parent level where username is missing
-    // which is inside the user object, so it shows user's properties
-    error should (include("firstName").or(include("email")).or(include("user")))
+    // The error should show available properties from the user object where username is missing
+    // These should be the properties inside user, not the root level properties
+    error should include("firstName")
+    error should include("lastName")
+    error should include("email")
+    // The actual error message will say "user.username" but available parameters
+    // should be from the user object, not include "user" as an available key
+  }
+
+  "SafeParameterExtractor" should "show root-level keys when root parameter is missing" in {
+    val extractor = SafeParameterExtractor(
+      ujson.Obj(
+        "user" -> ujson.Obj("name" -> "John"),
+        "age"  -> 30,
+        "city" -> "New York"
+      )
+    )
+
+    val result = extractor.getString("country") // country doesn't exist at root
+
+    (result should be).a(Symbol("left"))
+    val error = result.left.getOrElse(fail("Expected error"))
+
+    error should include("country")
+    error should include("missing")
+    error should include("available:")
+    // Should show root-level keys where country is missing
+    error should include("user")
+    error should include("age")
+    error should include("city")
+    (error should not).include("name") // Should NOT include nested properties
   }
 
   "SafeParameterExtractor" should "handle nested null values gracefully" in {
@@ -156,6 +184,41 @@ class ParameterValidationTest extends AnyFlatSpec with Matchers {
     error should include("cannot access parameter")
     error should include("name")
     error should include("null")
+  }
+
+  "SafeParameterExtractor" should "show correct keys for deeply nested missing parameters" in {
+    val extractor = SafeParameterExtractor(
+      ujson.Obj(
+        "user" -> ujson.Obj(
+          "profile" -> ujson.Obj(
+            "firstName" -> "John",
+            "lastName"  -> "Doe",
+            "settings" -> ujson.Obj(
+              "theme"         -> "dark",
+              "notifications" -> true
+            )
+          )
+        )
+      )
+    )
+
+    // Test missing parameter at different nesting levels
+    val result1 = extractor.getString("user.profile.settings.language")
+    (result1 should be).a(Symbol("left"))
+    val error1 = result1.left.getOrElse(fail("Expected error"))
+    error1 should include("available:")
+    error1 should include("theme")
+    error1 should include("notifications")
+    (error1 should not).include("firstName") // Should NOT include keys from parent level
+
+    val result2 = extractor.getString("user.profile.email")
+    (result2 should be).a(Symbol("left"))
+    val error2 = result2.left.getOrElse(fail("Expected error"))
+    error2 should include("available:")
+    error2 should include("firstName")
+    error2 should include("lastName")
+    error2 should include("settings")
+    (error2 should not).include("theme") // Should NOT include keys from nested level
   }
 
   "ToolFunction with complex nested parameters" should "provide clear path information in errors" in {
