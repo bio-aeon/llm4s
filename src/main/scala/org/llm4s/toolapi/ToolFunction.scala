@@ -29,13 +29,37 @@ case class ToolFunction[T, R: ReadWriter](
   /**
    * Executes the tool with the given arguments
    */
-  def execute(args: ujson.Value): Either[ToolCallError, ujson.Value] = {
-    val extractor = SafeParameterExtractor(args)
-    handler(extractor) match {
-      case Right(result) => Right(writeJs(result))
-      case Left(error)   => Left(ToolCallError.InvalidArguments(List(error)))
+  def execute(args: ujson.Value): Either[ToolCallError, ujson.Value] =
+    // Check for null arguments first
+    args match {
+      case ujson.Null =>
+        Left(ToolCallError.NullArguments(name))
+      case _ =>
+        val extractor = SafeParameterExtractor(args)
+        handler(extractor) match {
+          case Right(result) => Right(writeJs(result))
+          case Left(error)   => Left(ToolCallError.HandlerError(name, error))
+        }
     }
-  }
+
+  /**
+   * Executes the tool with enhanced error reporting
+   * Uses EnhancedParameterExtractor for better error messages
+   */
+  def executeEnhanced(
+    args: ujson.Value,
+    enhancedHandler: EnhancedParameterExtractor => Either[List[ToolParameterError], R]
+  ): Either[ToolCallError, ujson.Value] =
+    args match {
+      case ujson.Null =>
+        Left(ToolCallError.NullArguments(name))
+      case _ =>
+        val extractor = EnhancedParameterExtractor(args)
+        enhancedHandler(extractor) match {
+          case Right(result) => Right(writeJs(result))
+          case Left(errors)  => Left(ToolCallError.InvalidArguments(name, errors))
+        }
+    }
 }
 
 /**

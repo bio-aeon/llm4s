@@ -36,23 +36,57 @@ case class SafeParameterExtractor(params: ujson.Value) {
           Right(current)
         } else {
           val part = remainingParts.head
-          if (!current.isInstanceOf[ujson.Obj]) {
-            Left(
-              s"Path '$path': Expected object at '${pathParts.dropRight(remainingParts.size).mkString(".")}' but found ${current.getClass.getSimpleName}"
-            )
-          } else {
-            current.obj.get(part) match {
-              case Some(value) => navigatePath(value, remainingParts.tail)
-              case None        => Left(s"Path '$path' not found: missing '$part' segment")
-            }
+          current match {
+            case ujson.Null =>
+              val traversedPath = pathParts.dropRight(remainingParts.size).mkString(".")
+              val context       = if (traversedPath.isEmpty) "root" else s"'$traversedPath'"
+              Left(s"Cannot access property '$part' on null value at $context")
+            case obj: ujson.Obj =>
+              obj.obj.get(part) match {
+                case Some(value) => navigatePath(value, remainingParts.tail)
+                case None =>
+                  val availableKeys = obj.obj.keys.toList.sorted
+                  val keyInfo = if (availableKeys.nonEmpty) {
+                    s" Available properties: ${availableKeys.mkString(", ")}"
+                  } else {
+                    " (object has no properties)"
+                  }
+                  Left(s"Required parameter '$part' is missing at path '$path'.$keyInfo")
+              }
+            case other =>
+              val traversedPath = pathParts.dropRight(remainingParts.size).mkString(".")
+              val actualType = other match {
+                case _: ujson.Str  => "string"
+                case _: ujson.Num  => "number"
+                case _: ujson.Bool => "boolean"
+                case _: ujson.Arr  => "array"
+                case _             => other.getClass.getSimpleName
+              }
+              Left(
+                s"Cannot access property '$part' on $actualType value at '${traversedPath}'. Expected an object but got $actualType."
+              )
           }
         }
 
       // Get the value at the path
       navigatePath(params, pathParts.toList).flatMap { value =>
-        extractor(value) match {
-          case Some(result) => Right(result)
-          case None         => Left(s"Value at '$path' is not of expected type '$expectedType'")
+        value match {
+          case ujson.Null =>
+            Left(s"Parameter '$path' is null but expected $expectedType")
+          case _ =>
+            extractor(value) match {
+              case Some(result) => Right(result)
+              case None =>
+                val actualType = value match {
+                  case _: ujson.Str  => "string"
+                  case _: ujson.Num  => "number"
+                  case _: ujson.Bool => "boolean"
+                  case _: ujson.Arr  => "array"
+                  case _: ujson.Obj  => "object"
+                  case _             => value.getClass.getSimpleName
+                }
+                Left(s"Type mismatch for parameter '$path': expected $expectedType but got $actualType")
+            }
         }
       }
     } catch {

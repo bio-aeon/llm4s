@@ -13,16 +13,6 @@ case class ToolCallRequest(
 )
 
 /**
- * Error types for tool calls
- */
-sealed trait ToolCallError
-object ToolCallError {
-  case class UnknownFunction(name: String)          extends ToolCallError
-  case class InvalidArguments(errors: List[String]) extends ToolCallError
-  case class ExecutionError(cause: Throwable)       extends ToolCallError
-}
-
-/**
  * Registry for tool functions with execution capabilities
  */
 class ToolRegistry(initialTools: Seq[ToolFunction[_, _]]) {
@@ -39,7 +29,7 @@ class ToolRegistry(initialTools: Seq[ToolFunction[_, _]]) {
         Result
           .fromTry(Try(tool.execute(request.arguments)))
           .left
-          .map(e => ToolCallError.ExecutionError(new Exception(e.message)))
+          .map(e => ToolCallError.ExecutionError(request.functionName, new Exception(e.message)))
           .flatten
       case None => Left(ToolCallError.UnknownFunction(request.functionName))
     }

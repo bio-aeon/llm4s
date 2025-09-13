@@ -150,13 +150,21 @@ class Agent(client: LLMClient) {
           logger.info("Tool {} completed successfully in {}ms. Result: {}", toolCall.name, duration, jsonStr)
           jsonStr
         case Left(error) =>
-          val errorJson = s"""{ "isError": true, "message": "$error" }"""
-          logger.warn("Tool {} failed in {}ms with error: {}", toolCall.name, duration, error)
+          val errorMessage = error.getFormattedMessage
+          // Escape the error message for JSON
+          val escapedMessage = errorMessage
+            .replace("\\", "\\\\")
+            .replace("\"", "\\\"")
+            .replace("\n", "\\n")
+            .replace("\r", "\\r")
+            .replace("\t", "\\t")
+          val errorJson = s"""{ "isError": true, "error": "$escapedMessage" }"""
+          logger.warn("Tool {} failed in {}ms with error: {}", toolCall.name, duration, errorMessage)
           errorJson
       }
 
       state.log(s"[tool] ${toolCall.name} (${duration}ms): $resultContent")
-      ToolMessage(toolCall.id, resultContent)
+      ToolMessage(resultContent, toolCall.id)
     }
 
     // Add the tool messages to the conversation

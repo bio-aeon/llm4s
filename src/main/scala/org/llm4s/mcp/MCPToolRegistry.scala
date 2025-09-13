@@ -49,7 +49,7 @@ class MCPToolRegistry(
             } catch {
               case e: Exception =>
                 logger.error(s"MCP tool ${request.functionName} execution failed", e)
-                Left(ToolCallError.ExecutionError(e))
+                Left(ToolCallError.ExecutionError(request.functionName, e))
             }
           case None =>
             logger.warn(s"Tool ${request.functionName} not found in any registry (local or MCP)")
