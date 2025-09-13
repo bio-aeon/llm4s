@@ -1,5 +1,6 @@
-package org.llm4s.toolapi
+package org.llm4s.samples.toolapi
 
+import org.llm4s.toolapi._
 import upickle.default._
 
 /**

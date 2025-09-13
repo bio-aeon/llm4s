@@ -1,4 +1,6 @@
-package org.llm4s.toolapi
+package org.llm4s.samples.toolapi
+
+import org.llm4s.toolapi._
 
 /**
  * Demonstration of the improved error messages with consistent formatting
