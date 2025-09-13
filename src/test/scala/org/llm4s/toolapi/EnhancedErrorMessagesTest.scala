@@ -17,19 +17,17 @@ class EnhancedErrorMessagesTest extends AnyFlatSpec with Matchers {
       .withProperty(Schema.property("quantity", Schema.number("Item quantity")))
       .withProperty(Schema.property("location", Schema.string("Storage location")))
 
-    // Create a tool that uses the EnhancedParameterExtractor internally
+    // Create a tool that uses SafeParameterExtractor in enhanced mode
     ToolBuilder[Map[String, Any], TestResult](
       name,
       "Test tool for enhanced error messages",
       schema
     ).withHandler { params =>
-      // Convert SafeParameterExtractor errors to match new format
-      val enhancedExtractor = EnhancedParameterExtractor(params.params)
-
+      // Use SafeParameterExtractor in enhanced mode for structured errors
       val result = for {
-        item <- enhancedExtractor.getString("item")
-        qty  <- enhancedExtractor.getDouble("quantity")
-        loc  <- enhancedExtractor.getString("location")
+        item <- params.getStringEnhanced("item")
+        qty  <- params.getDoubleEnhanced("quantity")
+        loc  <- params.getStringEnhanced("location")
       } yield TestResult(s"Success: $item, $qty, $loc")
 
       result.left.map(_.getMessage)
@@ -112,8 +110,7 @@ class EnhancedErrorMessagesTest extends AnyFlatSpec with Matchers {
       "Divides 10 by the provided value",
       schema
     ).withHandler { params =>
-      val extractor = EnhancedParameterExtractor(params.params)
-      extractor.getDouble("value") match {
+      params.getDoubleEnhanced("value") match {
         case Right(0)  => Left("cannot divide by zero")
         case Right(v)  => Right(TestResult(s"Result: ${10.0 / v}"))
         case Left(err) => Left(err.getMessage)
@@ -194,8 +191,8 @@ class EnhancedErrorMessagesTest extends AnyFlatSpec with Matchers {
     handlerError.getFormattedMessage shouldBe "Tool call 'validate' failed with error: Invalid format"
   }
 
-  "EnhancedParameterExtractor" should "provide helpful information about available properties" in {
-    val extractor = EnhancedParameterExtractor(
+  "SafeParameterExtractor (enhanced mode)" should "provide helpful information about available properties" in {
+    val extractor = SafeParameterExtractor(
       ujson.Obj(
         "firstName" -> "John",
         "lastName"  -> "Doe",
@@ -203,7 +200,7 @@ class EnhancedErrorMessagesTest extends AnyFlatSpec with Matchers {
       )
     )
 
-    val result = extractor.getString("username")
+    val result = extractor.getStringEnhanced("username")
 
     (result should be).a(Symbol("left"))
     val error = result.left.getOrElse(fail("Expected error"))
@@ -211,8 +208,8 @@ class EnhancedErrorMessagesTest extends AnyFlatSpec with Matchers {
     error.getMessage should include("available: email, firstName, lastName")
   }
 
-  "EnhancedParameterExtractor" should "handle nested parameters correctly" in {
-    val extractor = EnhancedParameterExtractor(
+  "SafeParameterExtractor (enhanced mode)" should "handle nested parameters correctly" in {
+    val extractor = SafeParameterExtractor(
       ujson.Obj(
         "user" -> ujson.Obj(
           "profile" -> ujson.Obj(
@@ -223,18 +220,18 @@ class EnhancedErrorMessagesTest extends AnyFlatSpec with Matchers {
     )
 
     // Test successful nested access
-    val nameResult = extractor.getString("user.profile.name")
+    val nameResult = extractor.getStringEnhanced("user.profile.name")
     nameResult shouldBe Right("John")
 
     // Test missing nested property
-    val ageResult = extractor.getInt("user.profile.age")
+    val ageResult = extractor.getIntEnhanced("user.profile.age")
     (ageResult should be).a(Symbol("left"))
     val error = ageResult.left.getOrElse(fail("Expected error"))
     error.getMessage should include("required parameter 'user.profile.age' (type: integer) is missing")
   }
 
-  "EnhancedParameterExtractor" should "handle optional parameters correctly" in {
-    val extractor = EnhancedParameterExtractor(
+  "SafeParameterExtractor (enhanced mode)" should "handle optional parameters correctly" in {
+    val extractor = SafeParameterExtractor(
       ujson.Obj(
         "required" -> "value",
         "optional" -> ujson.Null

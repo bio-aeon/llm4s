@@ -43,18 +43,22 @@ case class ToolFunction[T, R: ReadWriter](
     }
 
   /**
-   * Executes the tool with enhanced error reporting
-   * Uses EnhancedParameterExtractor for better error messages
+   * Executes the tool with enhanced error reporting.
+   * Uses SafeParameterExtractor in enhanced mode for better error messages.
+   *
+   * @param args The arguments to pass to the tool
+   * @param enhancedHandler Handler that uses enhanced extraction methods
+   * @return Either an error or the result as JSON
    */
   def executeEnhanced(
     args: ujson.Value,
-    enhancedHandler: EnhancedParameterExtractor => Either[List[ToolParameterError], R]
+    enhancedHandler: SafeParameterExtractor => Either[List[ToolParameterError], R]
   ): Either[ToolCallError, ujson.Value] =
     args match {
       case ujson.Null =>
         Left(ToolCallError.NullArguments(name))
       case _ =>
-        val extractor = EnhancedParameterExtractor(args)
+        val extractor = SafeParameterExtractor(args)
         enhancedHandler(extractor) match {
           case Right(result) => Right(writeJs(result))
           case Left(errors)  => Left(ToolCallError.InvalidArguments(name, errors))
