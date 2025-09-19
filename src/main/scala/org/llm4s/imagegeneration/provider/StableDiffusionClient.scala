@@ -73,10 +73,7 @@ class StableDiffusionClient(config: StableDiffusionConfig) extends ImageGenerati
     for {
       _       <- Right(logger.info(s"Generating $count image(s) with prompt: $prompt"))
       payload <- Right(buildPayload(prompt, count, options))
-      response <- scala.util
-        .Try(makeHttpRequest(payload))
-        .toEither
-        .left
+      response <- Try(makeHttpRequest(payload)).toEither.left
         .map(e => UnknownError(e))
       result <- parseResponse(response, prompt, options)
     } yield result

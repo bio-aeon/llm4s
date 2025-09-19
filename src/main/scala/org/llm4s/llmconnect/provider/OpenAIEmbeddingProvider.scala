@@ -39,17 +39,14 @@ class OpenAIEmbeddingProvider(config: ConfigReader) extends EmbeddingProvider {
       logger.debug(s"[OpenAIEmbeddingProvider] POST $url model=$model inputs=${input.size}")
 
       val respEither: Either[EmbeddingError, Response[Either[String, String]]] =
-        scala.util
-          .Try(
-            basicRequest
-              .post(url)
-              .header("Authorization", s"Bearer ${cfg.apiKey}")
-              .header("Content-Type", "application/json")
-              .body(payload.render())
-              .send(backend)
-          )
-          .toEither
-          .left
+        Try(
+          basicRequest
+            .post(url)
+            .header("Authorization", s"Bearer ${cfg.apiKey}")
+            .header("Content-Type", "application/json")
+            .body(payload.render())
+            .send(backend)
+        ).toEither.left
           .map(e =>
             EmbeddingError(code = Some("502"), message = s"HTTP request failed: ${e.getMessage}", provider = "openai")
           )
@@ -57,15 +54,12 @@ class OpenAIEmbeddingProvider(config: ConfigReader) extends EmbeddingProvider {
       respEither.flatMap { response =>
         response.body match {
           case Right(body) =>
-            scala.util
-              .Try {
-                val json     = read(body)
-                val vectors  = json("data").arr.map(r => r("embedding").arr.map(_.num).toVector).toSeq
-                val metadata = Map("provider" -> "openai", "model" -> model, "count" -> input.size.toString)
-                EmbeddingResponse(embeddings = vectors, metadata = metadata)
-              }
-              .toEither
-              .left
+            Try {
+              val json     = read(body)
+              val vectors  = json("data").arr.map(r => r("embedding").arr.map(_.num).toVector).toSeq
+              val metadata = Map("provider" -> "openai", "model" -> model, "count" -> input.size.toString)
+              EmbeddingResponse(embeddings = vectors, metadata = metadata)
+            }.toEither.left
               .map { ex =>
                 logger.error(s"[OpenAIEmbeddingProvider] Parse error: ${ex.getMessage}")
                 EmbeddingError(code = Some("502"), message = s"Parsing error: ${ex.getMessage}", provider = "openai")

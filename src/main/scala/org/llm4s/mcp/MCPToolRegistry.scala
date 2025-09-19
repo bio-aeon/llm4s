@@ -22,7 +22,7 @@ class MCPToolRegistry(
   private val toolCache: ConcurrentHashMap[String, CachedTools] = new ConcurrentHashMap()
 
   logger.info(s"Initializing MCPToolRegistry with ${mcpServers.size} MCP servers and ${localTools.size} local tools")
-  logger.debug(s"Cache TTL set to ${cacheTTL}")
+  logger.debug(s"Cache TTL set to $cacheTTL")
 
   // Override to return ALL tools (local + MCP)
   override def tools: Seq[ToolFunction[_, _]] = getAllTools
@@ -42,15 +42,10 @@ class MCPToolRegistry(
         findMCPTool(request.functionName) match {
           case Some(tool) =>
             logger.debug(s"Executing MCP tool: ${request.functionName}")
-            scala.util
-              .Try(tool.execute(request.arguments))
-              .toEither
-              .left
-              .map { e =>
-                logger.error(s"MCP tool ${request.functionName} execution failed", e)
-                ToolCallError.ExecutionError(request.functionName, e)
-              }
-              .flatten
+            Try(tool.execute(request.arguments)).toEither.left.map { e =>
+              logger.error(s"MCP tool ${request.functionName} execution failed", e)
+              ToolCallError.ExecutionError(request.functionName, e)
+            }.flatten
           case None =>
             logger.warn(s"Tool ${request.functionName} not found in any registry (local or MCP)")
             Left(ToolCallError.UnknownFunction(request.functionName))

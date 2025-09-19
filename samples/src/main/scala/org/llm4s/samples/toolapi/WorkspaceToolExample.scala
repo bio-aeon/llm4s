@@ -11,6 +11,8 @@ import org.slf4j.LoggerFactory
 import upickle.default._
 
 import scala.annotation.tailrec
+import scala.util.{ Try, Using }
+import org.llm4s.types.TryOps
 
 /**
  * Example demonstrating how to use workspace tools with different LLM models
@@ -45,66 +47,71 @@ object WorkspaceToolExample {
     // Create a workspace
     val workspace = new ContainerisedWorkspace(workspaceDir)
 
-    try
-      // Start the workspace container
-      if (workspace.startContainer()) {
-        logger.info("Container started successfully")
+    val result = Using.resource(workspace) { ws =>
+      Try {
+        // Start the workspace container
+        if (ws.startContainer()) {
+          logger.info("Container started successfully")
 
-        // Create test file for demonstration
-        workspace.writeFile(
-          "/workspace/test_file.txt",
-          "This is a test file\nIt has multiple lines\nFor testing search functionality"
-        )
-        workspace.writeFile("/workspace/another_file.txt", "This is another test file\nWith different content")
+          // Create test file for demonstration
+          ws.writeFile(
+            "/workspace/test_file.txt",
+            "This is a test file\nIt has multiple lines\nFor testing search functionality"
+          )
+          ws.writeFile("/workspace/another_file.txt", "This is another test file\nWith different content")
 
-        // Create the workspace tools
-        val workspaceTools = WorkspaceTools.createDefaultWorkspaceTools(workspace)
-        val toolRegistry   = new ToolRegistry(workspaceTools)
+          // Create the workspace tools
+          val workspaceTools = WorkspaceTools.createDefaultWorkspaceTools(ws)
+          val toolRegistry   = new ToolRegistry(workspaceTools)
 
-        // Create test prompt for the LLM
-        val prompt = "You are a helpful assistant that has access to a workspace with files. " +
-          "Please explore the /workspace directory, then read the content of test_file.txt, " +
-          "and finally search for the word 'test' across all files. " +
-          "Return a summary of what you found."
+          // Create test prompt for the LLM
+          val prompt = "You are a helpful assistant that has access to a workspace with files. " +
+            "Please explore the /workspace directory, then read the content of test_file.txt, " +
+            "and search for the word 'test' across all files. " +
+            "Return a summary of what you found."
 
-        // Test with GPT-4o
-        logger.info(s"Testing with OpenAI's $gpt4oModelName...")
-        val openaiClientRes = for {
-          cfg    <- OpenAIConfig(gpt4oModelName, config)
-          client <- LLMConnect.getClient(LLMProvider.OpenAI, cfg)
-        } yield client
-        openaiClientRes match {
-          case Right(openaiClient) =>
-            testLLMWithTools(openaiClient, toolRegistry, prompt)
-          case Left(err) =>
-            logger.error(s"OpenAI client setup failed: ${err.formatted}")
+          // Test with GPT-4o
+          logger.info(s"Testing with OpenAI's $gpt4oModelName...")
+          val openaiClientRes = for {
+            cfg    <- OpenAIConfig(gpt4oModelName, config)
+            client <- LLMConnect.getClient(LLMProvider.OpenAI, cfg)
+          } yield client
+          openaiClientRes match {
+            case Right(openaiClient) =>
+              testLLMWithTools(openaiClient, toolRegistry, prompt)
+            case Left(err) =>
+              logger.error(s"OpenAI client setup failed: ${err.formatted}")
+          }
+
+          // Test with Claude
+          logger.info(s"Testing with Anthropic's $sonnetModelName...")
+          val anthropicClientRes = for {
+            cfg    <- AnthropicConfig(sonnetModelName, config)
+            client <- LLMConnect.getClient(LLMProvider.Anthropic, cfg)
+          } yield client
+          anthropicClientRes match {
+            case Right(anthropicClient) =>
+              testLLMWithTools(anthropicClient, toolRegistry, prompt)
+            case Left(err) =>
+              logger.error(s"Anthropic client setup failed: ${err.formatted}")
+          }
+        } else {
+          logger.error("Failed to start the workspace container")
         }
-
-        // Test with Claude
-        logger.info(s"Testing with Anthropic's $sonnetModelName...")
-        val anthropicClientRes = for {
-          cfg    <- AnthropicConfig(sonnetModelName, config)
-          client <- LLMConnect.getClient(LLMProvider.Anthropic, cfg)
-        } yield client
-        anthropicClientRes match {
-          case Right(anthropicClient) =>
-            testLLMWithTools(anthropicClient, toolRegistry, prompt)
-          case Left(err) =>
-            logger.error(s"Anthropic client setup failed: ${err.formatted}")
-        }
-      } else {
-        logger.error("Failed to start the workspace container")
       }
-    catch {
-      case e: Exception =>
-        logger.error(s"Error during workspace demo: ${e.getMessage}", e)
-    } finally
+    } { ws =>
       // Always clean up the container
-      if (workspace.stopContainer()) {
+      if (ws.stopContainer()) {
         logger.info("Container stopped successfully")
       } else {
         logger.error("Failed to stop the container")
       }
+    }
+
+    result.toResult.fold(
+      error => logger.error(s"Error during workspace demo: ${error.message}"),
+      _ => logger.info("Workspace tool demo completed successfully")
+    )
   }
 
   /**

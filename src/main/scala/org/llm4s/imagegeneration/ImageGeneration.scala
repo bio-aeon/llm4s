@@ -2,7 +2,9 @@ package org.llm4s.imagegeneration
 
 import java.time.Instant
 import java.nio.file.Path
-import org.llm4s.imagegeneration.provider.{ HttpClient, HuggingFaceClient, StableDiffusionClient, OpenAIImageClient }
+import org.llm4s.imagegeneration.provider.{ HttpClient, HuggingFaceClient, OpenAIImageClient, StableDiffusionClient }
+
+import scala.util.Try
 
 // ===== ERROR HANDLING =====
 
@@ -26,7 +28,7 @@ case class UnknownError(throwable: Throwable) extends ImageGenerationError {
 sealed trait ImageSize {
   def width: Int
   def height: Int
-  def description: String = s"${width}x${height}"
+  def description: String = s"${width}x$height"
 }
 
 object ImageSize {
@@ -120,10 +122,7 @@ case class GeneratedImage(
   /** Save image to file and return updated GeneratedImage with file path */
   def saveToFile(path: Path): Either[ImageGenerationError, GeneratedImage] = {
     import java.nio.file.Files
-    scala.util
-      .Try(Files.write(path, asBytes))
-      .toEither
-      .left
+    Try(Files.write(path, asBytes)).toEither.left
       .map(UnknownError.apply)
       .map(_ => copy(filePath = Some(path)))
   }

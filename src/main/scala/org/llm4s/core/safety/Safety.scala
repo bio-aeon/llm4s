@@ -49,7 +49,8 @@ object Safety {
     )(implicit ec: ExecutionContext, em: ErrorMapper = DefaultErrorMapper): Future[Result[A]] =
       fa.map(Right(_)).recover { case t => Left(em(t)) }
 
+    // Do not wrap in Try: Future.apply already captures synchronous exceptions.
     def safely[A](thunk: => A)(implicit ec: ExecutionContext, em: ErrorMapper = DefaultErrorMapper): Future[Result[A]] =
-      Future(fromTry(Try(thunk)))
+      Future(thunk).map(Right(_)).recover { case t => Left(em(t)) }
   }
 }

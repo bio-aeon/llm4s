@@ -1,6 +1,7 @@
 package org.llm4s.shared
 
 import java.util.UUID
+import scala.util.Try
 
 /**
  * Remote implementation of WorkspaceAgentInterface that converts method calls to commands,
@@ -219,25 +220,24 @@ object WorkspaceAgentInterfaceRemote {
     handler: PartialFunction[WorkspaceAgentCommand, WorkspaceAgentResponse]
   ): WorkspaceAgentInterfaceRemote = {
     val safeHandler: WorkspaceAgentCommand => WorkspaceAgentResponse = cmd =>
-      try
-        if (handler.isDefinedAt(cmd)) {
-          handler(cmd)
-        } else {
-          WorkspaceAgentErrorResponse(
-            cmd.commandId,
-            s"No handler defined for command type: ${cmd.getClass.getSimpleName}",
-            "INVALID_COMMAND",
-            None
-          )
-        }
-      catch {
-        case e: Exception =>
-          WorkspaceAgentErrorResponse(
-            cmd.commandId,
-            s"Error processing command: ${e.getMessage}",
-            "EXECUTION_FAILED",
-            Some(e.getStackTrace.mkString("\n"))
-          )
+      if (handler.isDefinedAt(cmd)) {
+        Try(handler(cmd)).fold(
+          e =>
+            WorkspaceAgentErrorResponse(
+              cmd.commandId,
+              s"Error processing command: ${Option(e.getMessage).getOrElse(e.getClass.getSimpleName)}",
+              "EXECUTION_FAILED",
+              Some(e.getStackTrace.mkString("\n"))
+            ),
+          identity
+        )
+      } else {
+        WorkspaceAgentErrorResponse(
+          cmd.commandId,
+          s"No handler defined for command type: ${cmd.getClass.getSimpleName}",
+          "INVALID_COMMAND",
+          None
+        )
       }
 
     new WorkspaceAgentInterfaceRemote(safeHandler)

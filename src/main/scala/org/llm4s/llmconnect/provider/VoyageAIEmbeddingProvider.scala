@@ -7,6 +7,8 @@ import org.slf4j.LoggerFactory
 import sttp.client4._
 import ujson.{ Arr, Obj, read }
 
+import scala.util.Try
+
 class VoyageAIEmbeddingProvider(config: ConfigReader) extends EmbeddingProvider {
 
   private val backend = DefaultSyncBackend()
@@ -18,10 +20,7 @@ class VoyageAIEmbeddingProvider(config: ConfigReader) extends EmbeddingProvider 
 
     // Lazily read provider config; surface missing envs as a clean EmbeddingError
     val cfgEither: Either[EmbeddingError, EmbeddingProviderConfig] =
-      scala.util
-        .Try(EmbeddingConfig.voyage(config))
-        .toEither
-        .left
+      Try(EmbeddingConfig.voyage(config)).toEither.left
         .map(e =>
           EmbeddingError(
             code = Some("400"),
@@ -41,17 +40,14 @@ class VoyageAIEmbeddingProvider(config: ConfigReader) extends EmbeddingProvider 
       logger.debug(s"[VoyageAIEmbeddingProvider] POST $url model=$model inputs=${input.size}")
 
       val respEither: Either[EmbeddingError, Response[Either[String, String]]] =
-        scala.util
-          .Try(
-            basicRequest
-              .post(url)
-              .header("Authorization", s"Bearer ${cfg.apiKey}")
-              .header("Content-Type", "application/json")
-              .body(payload.render())
-              .send(backend)
-          )
-          .toEither
-          .left
+        Try(
+          basicRequest
+            .post(url)
+            .header("Authorization", s"Bearer ${cfg.apiKey}")
+            .header("Content-Type", "application/json")
+            .body(payload.render())
+            .send(backend)
+        ).toEither.left
           .map(e =>
             EmbeddingError(code = Some("502"), message = s"HTTP request failed: ${e.getMessage}", provider = "voyage")
           )
@@ -59,15 +55,12 @@ class VoyageAIEmbeddingProvider(config: ConfigReader) extends EmbeddingProvider 
       respEither.flatMap { response =>
         response.body match {
           case Right(body) =>
-            scala.util
-              .Try {
-                val json     = read(body)
-                val vectors  = json("data").arr.map(r => r("embedding").arr.map(_.num).toVector).toSeq
-                val metadata = Map("provider" -> "voyage", "model" -> model, "count" -> input.size.toString)
-                EmbeddingResponse(embeddings = vectors, metadata = metadata)
-              }
-              .toEither
-              .left
+            Try {
+              val json     = read(body)
+              val vectors  = json("data").arr.map(r => r("embedding").arr.map(_.num).toVector).toSeq
+              val metadata = Map("provider" -> "voyage", "model" -> model, "count" -> input.size.toString)
+              EmbeddingResponse(embeddings = vectors, metadata = metadata)
+            }.toEither.left
               .map { ex =>
                 logger.error(s"[VoyageAIEmbeddingProvider] Parse error: ${ex.getMessage}")
                 EmbeddingError(code = Some("502"), message = s"Parsing error: ${ex.getMessage}", provider = "voyage")

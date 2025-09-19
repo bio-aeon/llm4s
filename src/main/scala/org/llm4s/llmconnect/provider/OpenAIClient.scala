@@ -10,7 +10,6 @@ import org.llm4s.llmconnect.model._
 import org.llm4s.llmconnect.streaming._
 import org.llm4s.toolapi.{ AzureToolHelper, ToolRegistry }
 import org.llm4s.types.Result
-import org.llm4s.core.safety.Safety
 
 import scala.jdk.CollectionConverters._
 import scala.util.Try
@@ -235,9 +234,11 @@ class OpenAIClient private (
 }
 
 object OpenAIClient {
+  import org.llm4s.types.TryOps
+
   def create(config: OpenAIConfig): Result[OpenAIClient] =
-    Safety.fromTry(Try(new OpenAIClient(config)))
+    Try(new OpenAIClient(config)).toResult
 
   def create(config: AzureConfig): Result[OpenAIClient] =
-    Safety.fromTry(Try(new OpenAIClient(config)))
+    Try(new OpenAIClient(config)).toResult
 }

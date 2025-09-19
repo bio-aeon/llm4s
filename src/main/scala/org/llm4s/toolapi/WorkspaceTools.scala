@@ -1,10 +1,10 @@
 package org.llm4s.toolapi
 
-import org.llm4s.core.safety.Safety
 import org.llm4s.shared._
 import org.llm4s.workspace.ContainerisedWorkspace
 import upickle.default._
 
+import org.llm4s.types.TryOps
 import scala.util.{ Failure, Success, Try }
 
 /**
@@ -359,9 +359,7 @@ object WorkspaceTools {
     val createDirs = params.getBoolean("create_directories").getOrElse(true)
 
     {
-      val r = Safety.safely(
-        workspace.writeFile(path, content, createDirectories = Some(createDirs))
-      )
+      val r = Try(workspace.writeFile(path, content, createDirectories = Some(createDirs))).toResult
       for {
         resp <- r.left.map(_.formatted)
       } yield ujson.Obj("success" -> resp.success)
@@ -381,9 +379,7 @@ object WorkspaceTools {
     val recursive  = params.getBoolean("recursive").getOrElse(true)
 
     (for {
-      response <- Safety
-        .safely(workspace.searchFiles(paths, query, searchType, recursive = Some(recursive)))
-        .left
+      response <- Try(workspace.searchFiles(paths, query, searchType, recursive = Some(recursive))).toResult.left
         .map(_.formatted)
     } yield response) match {
       case Right(response) =>
@@ -416,9 +412,7 @@ object WorkspaceTools {
 
     {
       logger.info(s"Executing command: $command in directory: $workingDir with timeout: $timeout")
-      val r = Safety.safely(
-        workspace.executeCommand(command, workingDirectory = Some(workingDir), timeout = timeout)
-      )
+      val r = Try(workspace.executeCommand(command, workingDirectory = Some(workingDir), timeout = timeout)).toResult
       for {
         execResult <- r.left.map(_.formatted)
       } yield {
@@ -464,7 +458,7 @@ object WorkspaceTools {
           }
         }.toList
 
-        val r = Safety.safely(workspace.modifyFile(path, operations))
+        val r = Try(workspace.modifyFile(path, operations)).toResult
         for {
           _ <- r.left.map(_.formatted)
         } yield ujson.Obj("success" -> true)

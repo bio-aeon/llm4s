@@ -2,7 +2,8 @@ package org.llm4s
 
 import cats.data.ValidatedNec
 import org.llm4s.config.ConfigReader
-import org.llm4s.core.safety.Safety
+import org.llm4s.core.safety.{ DefaultErrorMapper, ErrorMapper, Safety }
+import org.llm4s.types.TryOps
 import org.llm4s.error.{ ConfigurationError, ValidationError }
 import org.llm4s.llmconnect.model.StreamedChunk
 import org.llm4s.toolapi.ToolFunction
@@ -769,10 +770,8 @@ package object types {
 
   object Url {
     def create(value: String): Result[Url] =
-      scala.util
-        .Try(new java.net.URI(value)) // Validate URL format
-        .toEither
-        .left
+      Try(new java.net.URI(value)) // Validate URL format
+        .toEither.left
         .map(_ => error.ValidationError(s"Invalid URL: $value", "url"))
         .map(_ => Url(value))
   }
@@ -844,16 +843,19 @@ package object types {
   /** Type alias for percentage (0.0 to 100.0) */
   type Percentage = Double
 
-  /**
-   * Extension methods for Try to Result conversion
-   */
-  implicit class TryOps[A](val t: Try[A]) extends AnyVal {
+  /** Syntax: Try/Option/Future to Result conversions */
+  implicit final class TryOps[A](val t: Try[A]) extends AnyVal {
+    def toResult(implicit em: ErrorMapper = DefaultErrorMapper): Result[A] =
+      t.fold(e => Left(em(e)), v => Right(v))
+  }
 
-    /**
-     * Convert a Try to a Result using the existing Result.fromTry method.
-     * This provides the cleaner .toResult syntax requested in PR reviews.
-     */
-    def toResult: Result[A] = Safety.fromTry(t)
+  implicit final class OptionOps[A](val oa: Option[A]) extends AnyVal {
+    def toResult(ifEmpty: => error.LLMError): Result[A] = oa.toRight(ifEmpty)
+  }
+
+  implicit final class FutureOps[A](val fa: Future[A]) extends AnyVal {
+    def toResult(implicit ec: ExecutionContext, em: ErrorMapper = DefaultErrorMapper): Future[Result[A]] =
+      Safety.future.fromFuture(fa)
   }
 
 }
@@ -926,7 +928,7 @@ object Result {
       c <- rc
     } yield (a, b, c)
 
-  def safely[A](operation: => A): Result[A] = Safety.fromTry(Try(operation))
+  def safely[A](operation: => A): Result[A] = Try(operation).toResult
 
   // Async support
   def fromFuture[A](future: Future[A])(implicit ec: ExecutionContext): Future[Result[A]] =
@@ -952,7 +954,7 @@ object Result {
     if (errors.nonEmpty) Left(errors) else Right(successes)
   }
 
-  // Resource management: use scala.util.Using + core.safety.UsingOps#toResult
+  // Resource management: use scala.util.Using + types.TryOps#toResult
 }
 
 object AsyncResult {

@@ -28,8 +28,8 @@ class OpenRouterClient(config: OpenAIConfig) extends LLMClient {
     val requestBody = createRequestBody(conversation, options)
 
     // Make API call safely (no try/catch)
-    val attempt = scala.util
-      .Try {
+    val attempt =
+      Try {
         val request = HttpRequest
           .newBuilder()
           .uri(URI.create(s"${config.baseUrl}/chat/completions"))
@@ -41,10 +41,8 @@ class OpenRouterClient(config: OpenAIConfig) extends LLMClient {
           .build()
 
         httpClient.send(request, HttpResponse.BodyHandlers.ofString())
-      }
-      .toEither
-      .left
-      .map(_.toLLMError)
+      }.toEither.left
+        .map(_.toLLMError)
 
     attempt.flatMap { response =>
       // Handle response status
@@ -69,8 +67,8 @@ class OpenRouterClient(config: OpenAIConfig) extends LLMClient {
 
     val accumulator = StreamingAccumulator.create()
 
-    val attempt = scala.util
-      .Try {
+    val attempt =
+      Try {
         val request = HttpRequest
           .newBuilder()
           .uri(URI.create(s"${config.baseUrl}/chat/completions"))
@@ -119,10 +117,8 @@ class OpenRouterClient(config: OpenAIConfig) extends LLMClient {
         }
         Try(reader.close()); Try(response.body().close())
         loopTry.get
-      }
-      .toEither
-      .left
-      .map(_.toLLMError)
+      }.toEither.left
+        .map(_.toLLMError)
 
     attempt.flatMap(_ => accumulator.toCompletion)
   }

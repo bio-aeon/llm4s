@@ -7,6 +7,7 @@ import upickle.default.{ read => upickleRead, write => upickleWrite }
 import org.llm4s.mcp._
 import ujson.{ Obj, Str, Arr }
 import scala.util.{ Try, Success, Failure }
+import org.llm4s.types.TryOps
 import java.util.UUID
 import scala.collection.mutable
 
@@ -72,20 +73,22 @@ object DemonstrationMCPServer {
   class MCPHandler extends HttpHandler {
     override def handle(exchange: HttpExchange): Unit = {
       val method = exchange.getRequestMethod
-      logger.debug(s"📥 ${method} ${exchange.getRequestURI}")
+      logger.debug(s"📥 $method ${exchange.getRequestURI}")
 
-      try
+      Try {
         method match {
           case "POST"   => handlePOST(exchange)
           case "GET"    => handleGET(exchange)
           case "DELETE" => handleDELETE(exchange)
           case _        => sendErrorResponse(exchange, 405, "Method not allowed")
         }
-      catch {
-        case e: Exception =>
-          logger.error(s"❌ Unhandled error in ${method}: ${e.getMessage}", e)
+      }.toResult.fold(
+        error => {
+          logger.error(s"Unhandled error in $method: ${error.message}")
           sendErrorResponse(exchange, 500, "Internal server error")
-      }
+        },
+        _ => () // Success case - method already handled response
+      )
     }
 
     private def handlePOST(exchange: HttpExchange): Unit = {
@@ -446,11 +449,11 @@ object DemonstrationMCPServer {
 
       exchange.sendResponseHeaders(statusCode, bytes.length.toLong)
 
-      val outputStream = exchange.getResponseBody
-      try {
+      import scala.util.Using
+      Using(exchange.getResponseBody) { outputStream =>
         outputStream.write(bytes)
         outputStream.flush()
-      } finally outputStream.close()
+      }.get
     }
   }
 }

@@ -26,7 +26,9 @@ object RunnerMain extends cask.MainRoutes {
   implicit private val ec: ExecutionContext = ExecutionContext.fromExecutor(executor)
 
   // Get workspace path from environment variable or use default
-  private val workspacePath = sys.env.getOrElse("WORKSPACE_PATH", "/workspace")
+  // scalafix:off DisableSyntax.NoSystemGetenv
+  private val workspacePath = Option(System.getenv("WORKSPACE_PATH")).getOrElse("/workspace")
+  // scalafix:on DisableSyntax.NoSystemGetenv
 
   // Initialize workspace interface
   private val workspaceInterface = new WorkspaceAgentInterfaceImpl(workspacePath)
@@ -347,22 +349,14 @@ object RunnerMain extends cask.MainRoutes {
   def shutdown(): Unit = {
     logger.info("Shutting down WebSocket Runner service")
 
-    try {
+    Try {
       heartbeatExecutor.shutdown()
-      if (!heartbeatExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
-        heartbeatExecutor.shutdownNow()
-      }
-    } catch {
-      case _: InterruptedException => heartbeatExecutor.shutdownNow()
-    }
+      if (!heartbeatExecutor.awaitTermination(5, TimeUnit.SECONDS)) heartbeatExecutor.shutdownNow()
+    }.recover { case _: InterruptedException => heartbeatExecutor.shutdownNow() }
 
-    try {
+    Try {
       executor.shutdown()
-      if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
-        executor.shutdownNow()
-      }
-    } catch {
-      case _: InterruptedException => executor.shutdownNow()
-    }
+      if (!executor.awaitTermination(5, TimeUnit.SECONDS)) executor.shutdownNow()
+    }.recover { case _: InterruptedException => executor.shutdownNow() }
   }
 }
