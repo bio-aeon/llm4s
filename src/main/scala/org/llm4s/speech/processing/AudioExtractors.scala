@@ -40,34 +40,37 @@ object AudioInputExtractors {
   object BytesExtractor extends AudioProcessor[(Array[Byte], AudioMeta)] {
     def process(input: AudioInput): Result[(Array[Byte], AudioMeta)] = input match {
       case AudioInput.FileAudio(path) =>
-        try {
-          val bytes = Files.readAllBytes(path)
-          // For simplicity, assume standard PCM16 format - in production,
-          // this would parse actual file headers
-          val meta = AudioMeta(sampleRate = 44100, numChannels = 2, bitDepth = 16)
-          Right((bytes, meta))
-        } catch {
-          case ex: java.io.IOException =>
-            Left(ProcessingError.audioValidation(s"Failed to read audio file: $path", Some(ex)))
-          case ex: Exception =>
-            Left(ProcessingError.audioValidation(s"Error processing audio file: $path", Some(ex)))
-        }
+        scala.util
+          .Try {
+            val bytes = Files.readAllBytes(path)
+            val meta  = AudioMeta(sampleRate = 44100, numChannels = 2, bitDepth = 16)
+            (bytes, meta)
+          }
+          .toEither
+          .left
+          .map {
+            case ex: java.io.IOException =>
+              ProcessingError.audioValidation(s"Failed to read audio file: $path", Some(ex))
+            case ex: Exception => ProcessingError.audioValidation(s"Error processing audio file: $path", Some(ex))
+          }
 
       case AudioInput.BytesAudio(bytes, sampleRate, numChannels) =>
         val meta = AudioMeta(sampleRate = sampleRate, numChannels = numChannels, bitDepth = 16)
         Right((bytes, meta))
 
       case AudioInput.StreamAudio(stream, sampleRate, numChannels) =>
-        try {
-          val bytes = stream.readAllBytes()
-          val meta  = AudioMeta(sampleRate = sampleRate, numChannels = numChannels, bitDepth = 16)
-          Right((bytes, meta))
-        } catch {
-          case ex: java.io.IOException =>
-            Left(ProcessingError.audioValidation("Failed to read audio stream", Some(ex)))
-          case ex: Exception =>
-            Left(ProcessingError.audioValidation("Error processing audio stream", Some(ex)))
-        }
+        scala.util
+          .Try {
+            val bytes = stream.readAllBytes()
+            val meta  = AudioMeta(sampleRate = sampleRate, numChannels = numChannels, bitDepth = 16)
+            (bytes, meta)
+          }
+          .toEither
+          .left
+          .map {
+            case ex: java.io.IOException => ProcessingError.audioValidation("Failed to read audio stream", Some(ex))
+            case ex: Exception           => ProcessingError.audioValidation("Error processing audio stream", Some(ex))
+          }
     }
 
     def name: String = "bytes-extractor"

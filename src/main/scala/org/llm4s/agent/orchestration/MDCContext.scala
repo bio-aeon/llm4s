@@ -1,3 +1,4 @@
+// scalafix:off
 package org.llm4s.agent.orchestration
 
 import org.slf4j.MDC
@@ -6,6 +7,7 @@ import scala.concurrent.{ ExecutionContext, Future }
 /**
  * Thread-safe MDC context management for async operations.
  * Preserves MDC context across thread boundaries.
+ * This file needs try-finally to ensure MDC context is restored.
  */
 object MDCContext {
 

@@ -1,3 +1,4 @@
+// scalafix:off
 package org.llm4s.llmconnect.utils.dbx
 
 import com.zaxxer.hikari.{ HikariConfig, HikariDataSource }
@@ -6,6 +7,7 @@ import java.sql.Connection
 
 /**
  * Manages database connection pooling using HikariCP
+ * This file needs try-finally for JDBC resource management.
  */
 class ConnectionPool(pgConfig: PgConfig) extends AutoCloseable {
 

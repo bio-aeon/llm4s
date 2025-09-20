@@ -1,8 +1,6 @@
 package org.llm4s.toolapi
 
-import org.llm4s.Result
-
-import scala.util.Try
+import org.llm4s.core.safety.Safety
 
 /**
  * Request model for tool calls
@@ -26,10 +24,10 @@ class ToolRegistry(initialTools: Seq[ToolFunction[_, _]]) {
   def execute(request: ToolCallRequest): Either[ToolCallError, ujson.Value] =
     tools.find(_.name == request.functionName) match {
       case Some(tool) =>
-        Result
-          .fromTry(Try(tool.execute(request.arguments)))
+        Safety
+          .safely(tool.execute(request.arguments))
           .left
-          .map(e => ToolCallError.ExecutionError(request.functionName, new Exception(e.message)))
+          .map(err => ToolCallError.ExecutionError(request.functionName, new Exception(err.message)))
           .flatten
       case None => Left(ToolCallError.UnknownFunction(request.functionName))
     }

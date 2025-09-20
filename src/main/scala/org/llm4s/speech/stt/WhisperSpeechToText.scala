@@ -8,6 +8,8 @@ import cats.implicits._
 
 import java.nio.file.{ Files, Path }
 import java.io.IOException
+import org.llm4s.core.safety.Safety
+import scala.util.Try
 import scala.sys.process._
 
 /**
@@ -26,41 +28,37 @@ final class WhisperSpeechToText(
       wav <- input match {
         case AudioInput.FileAudio(path) => Right(path)
         case AudioInput.BytesAudio(bytes, _, _) =>
-          WavFileGenerator.createTempWavFile("llm4s-whisper-").flatMap { tmp =>
-            try {
-              Files.write(tmp, bytes)
-              Right(tmp)
-            } catch {
-              case _: IOException => Left(ProcessingError.audioValidation("IO error writing bytes to temp WAV file"))
-              case _: SecurityException =>
-                Left(ProcessingError.audioValidation("Security error accessing temp WAV file"))
-              case _: Exception => Left(ProcessingError.audioValidation("Failed to write bytes to temp WAV file"))
-            }
-          }
+          WavFileGenerator
+            .createTempWavFile("llm4s-whisper-")
+            .flatMap(tmp =>
+              Safety
+                .fromTry(Try(Files.write(tmp, bytes)))
+                .map(_ => tmp)
+                .left
+                .map(_ => ProcessingError.audioValidation("IO error writing bytes to temp WAV file"))
+            )
         case AudioInput.StreamAudio(stream, _, _) =>
-          WavFileGenerator.createTempWavFile("llm4s-whisper-").flatMap { tmp =>
-            try {
-              Files.write(tmp, stream.readAllBytes())
-              Right(tmp)
-            } catch {
-              case _: IOException => Left(ProcessingError.audioValidation("IO error writing stream to temp WAV file"))
-              case _: SecurityException =>
-                Left(ProcessingError.audioValidation("Security error accessing temp WAV file"))
-              case _: Exception => Left(ProcessingError.audioValidation("Failed to write stream to temp WAV file"))
-            }
-          }
+          WavFileGenerator
+            .createTempWavFile("llm4s-whisper-")
+            .flatMap(tmp =>
+              Safety
+                .fromTry(Try(Files.write(tmp, stream.readAllBytes())))
+                .map(_ => tmp)
+                .left
+                .map(_ => ProcessingError.audioValidation("IO error writing stream to temp WAV file"))
+            )
       }
 
       args = buildWhisperArgs(wav, options)
 
-      output <-
-        try
-          Right(args.!!)
-        catch {
-          case _: java.io.IOException => Left(ProcessingError.audioValidation("Whisper CLI not found or IO error"))
+      output <- Safety
+        .fromTry(Try(args.!!))
+        .left
+        .map {
+          case _: IOException => ProcessingError.audioValidation("Whisper CLI not found or IO error")
           case _: RuntimeException =>
-            Left(ProcessingError.audioValidation("Whisper CLI execution failed with non-zero exit code"))
-          case _: Exception => Left(ProcessingError.audioValidation("Whisper CLI execution failed"))
+            ProcessingError.audioValidation("Whisper CLI execution failed with non-zero exit code")
+          case _ => ProcessingError.audioValidation("Whisper CLI execution failed")
         }
 
       transcript = parseWhisperOutput(output, options)

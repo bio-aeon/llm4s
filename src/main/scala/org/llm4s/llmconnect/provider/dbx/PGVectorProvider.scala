@@ -2,7 +2,9 @@ package org.llm4s.llmconnect.provider.dbx
 
 import org.llm4s.llmconnect.model.dbx._
 import org.llm4s.llmconnect.utils.dbx.SqlSafetyUtils
+import org.llm4s.core.safety.UsingOps._
 import java.sql.Connection
+import scala.util.Try
 
 object PGVectorProvider extends DbxProvider {
   override def probe(conn: Connection, expectedDb: String, requirePgvector: Boolean): Either[DbxError, String] =
@@ -71,12 +73,11 @@ object PGVectorProvider extends DbxProvider {
               // Use parameterized query for the version value
               val sql = s"insert into $qualifiedName(pgvector_version) values (?)"
               withDbOperation("Record version") {
-                val ps = conn.prepareStatement(sql)
-                try {
+                using(conn.prepareStatement(sql)) { ps =>
                   ps.setString(1, version)
                   ps.execute()
                   ()
-                } finally ps.close()
+                }
               }
             } else Right(())
         }
@@ -115,60 +116,49 @@ object PGVectorProvider extends DbxProvider {
    * Wraps a database operation and handles exceptions consistently
    */
   private def withDbOperation[T](operation: String)(block: => T): Either[DbxError, T] =
-    try
-      Right(block)
-    catch {
-      case e: java.sql.SQLException => Left(handleSQLException(e, operation))
-      case e: Throwable => Left(ConnectionError(s"$operation failed with unexpected error: ${e.getMessage}"))
+    Try(block).toEither.left.map {
+      case e: java.sql.SQLException => handleSQLException(e, operation)
+      case e: Throwable             => ConnectionError(s"$operation failed with unexpected error: ${e.getMessage}")
     }
 
   private def safeExec(conn: Connection, sql: String): Either[DbxError, Unit] =
     withDbOperation("Execute SQL") {
-      val ps = conn.prepareStatement(sql)
-      try {
+      using(conn.prepareStatement(sql)) { ps =>
         ps.execute()
         ()
-      } finally ps.close()
+      }
     }
 
   private def queryString(conn: Connection, sql: String): Either[DbxError, String] =
     withDbOperation("Query string") {
-      val ps = conn.prepareStatement(sql)
-      try {
-        val rs = ps.executeQuery()
-        try
+      using(conn.prepareStatement(sql)) { ps =>
+        using(ps.executeQuery()) { rs =>
           if (rs.next()) {
             rs.getString(1)
           } else {
             throw new java.sql.SQLException(s"No results from query")
           }
-        finally rs.close()
-      } finally ps.close()
+        }
+      }
     }
 
   private def queryStringOpt(conn: Connection, sql: String): Either[DbxError, Option[String]] =
     withDbOperation("Query optional string") {
-      val ps = conn.prepareStatement(sql)
-      try {
-        val rs = ps.executeQuery()
-        try
-          if (rs.next()) Option(rs.getString(1)) else None
-        finally rs.close()
-      } finally ps.close()
+      using(conn.prepareStatement(sql)) { ps =>
+        using(ps.executeQuery())(rs => if (rs.next()) Option(rs.getString(1)) else None)
+      }
     }
 
   private def queryInt(conn: Connection, sql: String): Either[DbxError, Int] =
     withDbOperation("Query integer") {
-      val ps = conn.prepareStatement(sql)
-      try {
-        val rs = ps.executeQuery()
-        try
+      using(conn.prepareStatement(sql)) { ps =>
+        using(ps.executeQuery()) { rs =>
           if (rs.next()) {
             rs.getInt(1)
           } else {
             throw new java.sql.SQLException(s"No results from query")
           }
-        finally rs.close()
-      } finally ps.close()
+        }
+      }
     }
 }

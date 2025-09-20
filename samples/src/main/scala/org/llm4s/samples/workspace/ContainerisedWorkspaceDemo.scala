@@ -3,6 +3,8 @@ package org.llm4s.samples.workspace
 import org.llm4s.shared.ReplaceOperation
 import org.llm4s.workspace.ContainerisedWorkspace
 import org.slf4j.LoggerFactory
+import scala.util.{ Try, Using }
+import org.llm4s.types.TryOps
 
 /**
  * Demonstrates the basic usage of the Workspace class
@@ -16,11 +18,18 @@ object ContainerisedWorkspaceDemo extends App {
 
   val workspace = new ContainerisedWorkspace(workspaceDir)
 
-  try
-    // Start the workspace container
+  // Define a resource that manages the workspace container lifecycle
+  def withWorkspaceContainer[T](workspace: ContainerisedWorkspace)(f: ContainerisedWorkspace => T): Try[T] = {
     if (workspace.startContainer()) {
       logger.info("Container started successfully")
+      Try(f(workspace))
+    } else {
+      throw new RuntimeException("Failed to start the workspace container")
+    }
+  }
 
+  val result = Using.resource(workspace) { ws =>
+    withWorkspaceContainer(ws) { _ =>
       // List the workspace directory
       val dirContents = workspace.exploreFiles("/workspace")
       logger.info(s"Initial directory contents: ${dirContents.files.map(_.path).mkString(", ")}")
@@ -76,17 +85,18 @@ object ContainerisedWorkspaceDemo extends App {
       // Get workspace info
       val workspaceInfo = workspace.getWorkspaceInfo()
       logger.info(s"Workspace info: ${workspaceInfo.root}")
-    } else {
-      logger.error("Failed to start the workspace container")
     }
-  catch {
-    case e: Exception =>
-      logger.error(s"Error during workspace demo: ${e.getMessage}", e)
-  } finally
-    // Always clean up the container
-    if (workspace.stopContainer()) {
+  } { ws =>
+    // Cleanup: always try to stop the container
+    if (ws.stopContainer()) {
       logger.info("Container stopped successfully")
     } else {
       logger.error("Failed to stop the container")
     }
+  }
+
+  result.toResult.fold(
+    error => logger.error(s"Error during workspace demo: ${error.message}"),
+    _ => logger.info("Workspace demo completed successfully")
+  )
 }

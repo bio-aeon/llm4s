@@ -6,7 +6,7 @@ import org.llm4s.error.LLMError
 import java.time.Instant
 import java.util.Base64
 import java.nio.file.{ Files, Paths }
-import scala.util.{ Try, Success, Failure }
+import scala.util.Try
 
 /**
  * OpenAI Vision client for AI-powered image analysis using GPT-4 Vision.
@@ -28,41 +28,20 @@ class OpenAIVisionClient(config: OpenAIVisionConfig) extends org.llm4s.imageproc
     imagePath: String,
     prompt: Option[String] = None
   ): Either[LLMError, ImageAnalysisResult] =
-    try {
-      // First, get basic metadata using local processor
-      val basicAnalysis = localProcessor.analyzeImage(imagePath, None)
-      val metadata      = basicAnalysis.map(_.metadata).getOrElse(ImageMetadata(originalPath = Some(imagePath)))
-
-      // Convert image to base64 for API call
-      val base64Image = encodeImageToBase64(imagePath) match {
-        case Success(encoded) => encoded
-        case Failure(exception) =>
-          return Left(LLMError.processingFailed("process", s"Failed to encode image: ${exception.getMessage}"))
-      }
-
-      // Call OpenAI Vision API
-      val analysisPrompt = prompt.getOrElse(
+    for {
+      // basic metadata via local processor (already Either)
+      basic <- localProcessor.analyzeImage(imagePath, None)
+      metadata = basic.metadata
+      base64Image <- encodeImageToBase64(imagePath).toEither.left
+        .map(e => LLMError.processingFailed("process", s"Failed to encode image: ${e.getMessage}"))
+      analysisPrompt = prompt.getOrElse(
         "Analyze this image in detail. Describe what you see, identify any objects, text, or people present. " +
           "Provide tags that categorize the image content."
       )
-
-      // Detect media type for proper API call
-      val mediaType = MediaType.fromPath(imagePath)
-
-      val visionResponse = callOpenAIVisionAPI(base64Image, analysisPrompt, mediaType) match {
-        case Success(response) => response
-        case Failure(exception) =>
-          return Left(LLMError.apiCallFailed("OpenAI", s"OpenAI Vision API call failed: ${exception.getMessage}"))
-      }
-
-      // Parse the response and extract structured information
-      val parsedResult = parseVisionResponse(visionResponse, metadata)
-      Right(parsedResult)
-
-    } catch {
-      case e: Exception =>
-        Left(LLMError.processingFailed("process", s"Error analyzing image with OpenAI Vision: ${e.getMessage}"))
-    }
+      mediaType = MediaType.fromPath(imagePath)
+      visionResponse <- callOpenAIVisionAPI(base64Image, analysisPrompt, mediaType).toEither.left
+        .map(e => LLMError.apiCallFailed("OpenAI", s"OpenAI Vision API call failed: ${e.getMessage}"))
+    } yield parseVisionResponse(visionResponse, metadata)
 
   /**
    * Preprocesses an image by applying a sequence of operations.
@@ -214,25 +193,22 @@ class OpenAIVisionClient(config: OpenAIVisionConfig) extends org.llm4s.imageproc
         case statusCode =>
           val errorMessage = response.body match {
             case Left(errorBody) =>
-              // Try to parse OpenAI error format
-              try {
-                val json      = read(errorBody)
-                val error     = json.obj.get("error")
-                val message   = error.flatMap(_.obj.get("message")).map(_.str)
-                val errorType = error.flatMap(_.obj.get("type")).map(_.str)
-                val errorCode = error.flatMap(_.obj.get("code")).map(_.str)
-                val details = (message, errorType, errorCode) match {
-                  case (Some(msg), _, Some(code)) => s"$code: $msg"
-                  case (Some(msg), Some(typ), _)  => s"$typ: $msg"
-                  case (Some(msg), _, _)          => msg
-                  case _                          => errorBody
+              Try(read(errorBody)).toOption
+                .flatMap(js => js.obj.get("error"))
+                .map { err =>
+                  val message   = err.obj.get("message").flatMap(_.strOpt)
+                  val errorType = err.obj.get("type").flatMap(_.strOpt)
+                  val errorCode = err.obj.get("code").flatMap(_.strOpt)
+                  (message, errorType, errorCode) match {
+                    case (Some(msg), _, Some(code)) => s"$code: $msg"
+                    case (Some(msg), Some(typ), _)  => s"$typ: $msg"
+                    case (Some(msg), _, _)          => msg
+                    case _                          => errorBody
+                  }
                 }
-                s"Status $statusCode: $details"
-              } catch {
-                case _: Exception => s"Status $statusCode: $errorBody"
-              }
-            case Right(body) =>
-              s"Status $statusCode: $body"
+                .map(d => s"Status $statusCode: $d")
+                .getOrElse(s"Status $statusCode: $errorBody")
+            case Right(body) => s"Status $statusCode: $body"
           }
           throw new RuntimeException(s"OpenAI API call failed - $errorMessage")
       }
@@ -241,17 +217,14 @@ class OpenAIVisionClient(config: OpenAIVisionConfig) extends org.llm4s.imageproc
   private def extractContentFromResponse(jsonResponse: String): String = {
     import ujson._
 
-    try {
-      val json = read(jsonResponse)
-      // OpenAI's response format has content in choices[0].message.content
-      json("choices").arr.headOption
-        .flatMap(_.obj.get("message"))
-        .flatMap(_.obj.get("content"))
-        .map(_.str)
-        .getOrElse("Could not parse response from OpenAI Vision API")
-    } catch {
-      case _: Exception => "Could not parse response from OpenAI Vision API"
-    }
+    Try(read(jsonResponse)).toOption
+      .flatMap { json =>
+        json("choices").arr.headOption
+          .flatMap(_.obj.get("message"))
+          .flatMap(_.obj.get("content"))
+          .map(_.str)
+      }
+      .getOrElse("Could not parse response from OpenAI Vision API")
   }
 
   private def parseVisionResponse(response: String, metadata: ImageMetadata): ImageAnalysisResult = {

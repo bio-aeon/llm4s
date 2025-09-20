@@ -25,73 +25,62 @@ class SessionManager(sessionDir: DirectoryPath, agent: Agent) {
    * Converts SessionState to JSON format for persistence (using upickle automatic derivation)
    * Note: We handle ToolRegistry separately since it contains function references
    */
-  private def sessionStateToJson(state: SessionState): String =
-    try {
-      logger.debug("Starting SessionState serialization")
+  private def sessionStateToJson(state: SessionState): String = {
+    logger.debug("Starting SessionState serialization")
 
-      // Test each component separately
-      val sessionIdJson = ujson.Str(state.sessionId.value)
-      logger.debug("SessionId serialized successfully")
+    // Test each component separately
+    val sessionIdJson = ujson.Str(state.sessionId.value)
+    logger.debug("SessionId serialized successfully")
 
-      val sessionDirJson = ujson.Str(state.sessionDir.value)
-      logger.debug("SessionDir serialized successfully")
+    val sessionDirJson = ujson.Str(state.sessionDir.value)
+    logger.debug("SessionDir serialized successfully")
 
-      val createdJson = ujson.Str(state.created.toString)
-      logger.debug("Created timestamp serialized successfully")
+    val createdJson = ujson.Str(state.created.toString)
+    logger.debug("Created timestamp serialized successfully")
 
-      val agentStateJson = state.agentState match {
-        case None =>
-          logger.debug("No agent state to serialize")
-          ujson.Null
-        case Some(agentState) =>
-          logger.debug("Serializing agent state components")
+    val agentStateJson = state.agentState match {
+      case None =>
+        logger.debug("No agent state to serialize")
+        ujson.Null
+      case Some(agentState) =>
+        logger.debug("Serializing agent state components")
 
-          // Test conversation serialization
-          val conversationJson =
-            try
-              write(agentState.conversation)
-            catch {
-              case ex: Exception =>
-                logger.error("Failed to serialize conversation", ex)
-                throw new RuntimeException("Conversation serialization failed", ex)
-            }
-          logger.debug("Conversation serialized successfully")
+        // Test conversation serialization
+        val conversationJson = Try(write(agentState.conversation)).getOrElse {
+          val ex = new RuntimeException("Conversation serialization failed")
+          logger.error("Failed to serialize conversation", ex)
+          throw ex
+        }
+        logger.debug("Conversation serialized successfully")
 
-          // Test status serialization
-          val statusJson =
-            try
-              write(agentState.status)
-            catch {
-              case ex: Exception =>
-                logger.error("Failed to serialize agent status", ex)
-                throw new RuntimeException("AgentStatus serialization failed", ex)
-            }
-          logger.debug("AgentStatus serialized successfully")
+        // Test status serialization
+        val statusJson = Try(write(agentState.status)).getOrElse {
+          val ex = new RuntimeException("AgentStatus serialization failed")
+          logger.error("Failed to serialize agent status", ex)
+          throw ex
+        }
+        logger.debug("AgentStatus serialized successfully")
 
-          ujson.Obj(
-            "conversation" -> ujson.read(conversationJson),
-            "userQuery"    -> ujson.Str(agentState.userQuery),
-            "status"       -> ujson.read(statusJson),
-            "logs"         -> ujson.Arr.from(agentState.logs.map(ujson.Str(_))),
-            "toolNames"    -> ujson.Arr.from(agentState.tools.tools.map(t => ujson.Str(t.name)))
-          )
-      }
-
-      val jsonObj = ujson.Obj(
-        "sessionId"  -> sessionIdJson,
-        "sessionDir" -> sessionDirJson,
-        "created"    -> createdJson,
-        "agentState" -> agentStateJson
-      )
-
-      val result = ujson.write(jsonObj)
-      logger.debug("SessionState serialization completed successfully")
-      result
-    } catch {
-      case ex: Exception =>
-        logger.error("Failed to serialize SessionState", ex)
-        throw ex
+        ujson.Obj(
+          "conversation" -> ujson.read(conversationJson),
+          "userQuery"    -> ujson.Str(agentState.userQuery),
+          "status"       -> ujson.read(statusJson),
+          "logs"         -> ujson.Arr.from(agentState.logs.map(ujson.Str(_))),
+          "toolNames"    -> ujson.Arr.from(agentState.tools.tools.map(t => ujson.Str(t.name)))
+        )
     }
+
+    val jsonObj = ujson.Obj(
+      "sessionId"  -> sessionIdJson,
+      "sessionDir" -> sessionDirJson,
+      "created"    -> createdJson,
+      "agentState" -> agentStateJson
+    )
+
+    val result = ujson.write(jsonObj)
+    logger.debug("SessionState serialization completed successfully")
+    result
+  }
 
   /**
    * Ensures the session directory exists
@@ -133,49 +122,44 @@ class SessionManager(sessionDir: DirectoryPath, agent: Agent) {
    * Creates JSON content for session storage
    */
   private def createJsonContent(state: SessionState): Either[AssistantError, String] =
-    Try(sessionStateToJson(state).toString()).toEither
+    Try(sessionStateToJson(state)).toEither
       .leftMap(ex => AssistantError.jsonSerializationFailed("SessionState", ex))
 
   /**
    * Converts JSON back to SessionState for loading
    * Note: We reconstruct ToolRegistry from the provided tools parameter
    */
-  private def jsonToSessionState(json: ujson.Value, tools: ToolRegistry): SessionState =
-    try {
-      val obj = json.obj
-      logger.debug("Parsing sessionId...")
-      val sessionId = SessionId(obj("sessionId").str)
-      logger.debug("Parsing sessionDir...")
-      val sessionDir = DirectoryPath(obj("sessionDir").str)
-      logger.debug("Parsing created timestamp...")
-      val created = LocalDateTime.parse(obj("created").str)
+  private def jsonToSessionState(json: ujson.Value, tools: ToolRegistry): SessionState = {
+    val obj = json.obj
+    logger.debug("Parsing sessionId...")
+    val sessionId = SessionId(obj("sessionId").str)
+    logger.debug("Parsing sessionDir...")
+    val sessionDir = DirectoryPath(obj("sessionDir").str)
+    logger.debug("Parsing created timestamp...")
+    val created = LocalDateTime.parse(obj("created").str)
 
-      logger.debug("Parsing agentState...")
-      val agentState = obj("agentState") match {
-        case ujson.Null =>
-          logger.debug("AgentState is null")
-          None
-        case agentObj =>
-          val agentObjMap = agentObj.obj
-          logger.debug("Parsing conversation...")
-          val conversation = read[Conversation](agentObjMap("conversation"))
-          logger.debug("Parsing userQuery...")
-          val userQuery = agentObjMap("userQuery").str
-          logger.debug("Parsing status...")
-          val status = read[AgentStatus](agentObjMap("status"))
-          logger.debug("Parsing logs...")
-          val logs = agentObjMap("logs").arr.map(_.str).toSeq
-          logger.debug("Creating AgentState...")
-          Some(AgentState(conversation, tools, userQuery, status, logs))
-      }
-
-      logger.debug("Creating SessionState...")
-      SessionState(agentState, sessionId, sessionDir, created)
-    } catch {
-      case ex: Exception =>
-        logger.error("Error in jsonToSessionState at specific step:", ex)
-        throw ex
+    logger.debug("Parsing agentState...")
+    val agentState = obj("agentState") match {
+      case ujson.Null =>
+        logger.debug("AgentState is null")
+        None
+      case agentObj =>
+        val agentObjMap = agentObj.obj
+        logger.debug("Parsing conversation...")
+        val conversation = read[Conversation](agentObjMap("conversation"))
+        logger.debug("Parsing userQuery...")
+        val userQuery = agentObjMap("userQuery").str
+        logger.debug("Parsing status...")
+        val status = read[AgentStatus](agentObjMap("status"))
+        logger.debug("Parsing logs...")
+        val logs = agentObjMap("logs").arr.map(_.str).toSeq
+        logger.debug("Creating AgentState...")
+        Some(AgentState(conversation, tools, userQuery, status, logs))
     }
+
+    logger.debug("Creating SessionState...")
+    SessionState(agentState, sessionId, sessionDir, created)
+  }
 
   /**
    * Loads a session from JSON file by title
@@ -256,7 +240,7 @@ class SessionManager(sessionDir: DirectoryPath, agent: Agent) {
       baseFilename
     } else {
       // Use system temp directory to generate guaranteed unique filename
-      val tempFile     = FileUtils.getFile(FileUtils.getTempDirectory(), s"session_${System.nanoTime()}")
+      val tempFile     = FileUtils.getFile(FileUtils.getTempDirectory, s"session_${System.nanoTime()}")
       val uniqueSuffix = tempFile.getName.substring(8) // Remove "session_" prefix
       s"$baseFilename-$uniqueSuffix"
     }

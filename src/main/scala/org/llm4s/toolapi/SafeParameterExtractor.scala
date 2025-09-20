@@ -74,31 +74,24 @@ case class SafeParameterExtractor(params: ujson.Value) {
     path: String,
     extractor: ujson.Value => Option[T],
     expectedType: String
-  ): Either[ToolParameterError, T] =
-    try {
-      val pathParts = if (path.contains('.')) path.split('.').toList else List(path)
+  ): Either[ToolParameterError, T] = {
+    val pathParts = if (path.contains('.')) path.split('.').toList else List(path)
 
-      navigateToValue(pathParts, params) match {
-        case Left(error)                                  => Left(error)
-        case Right(NavigationResult(None, availableKeys)) =>
-          // Parameter is missing - use the available keys from the parent object
-          Left(ToolParameterError.MissingParameter(path, expectedType, availableKeys))
-        case Right(NavigationResult(Some(ujson.Null), _)) =>
-          // Parameter exists but is null
-          Left(ToolParameterError.NullParameter(path, expectedType))
-        case Right(NavigationResult(Some(value), _)) =>
-          // Try to extract the value with the correct type
-          extractor(value) match {
-            case Some(result) => Right(result)
-            case None =>
-              val actualType = getValueType(value)
-              Left(ToolParameterError.TypeMismatch(path, expectedType, actualType))
-          }
-      }
-    } catch {
-      case _: Exception =>
-        Left(ToolParameterError.MissingParameter(path, expectedType, Nil))
+    navigateToValue(pathParts, params) match {
+      case Left(error) => Left(error)
+      case Right(NavigationResult(None, availableKeys)) =>
+        Left(ToolParameterError.MissingParameter(path, expectedType, availableKeys))
+      case Right(NavigationResult(Some(ujson.Null), _)) =>
+        Left(ToolParameterError.NullParameter(path, expectedType))
+      case Right(NavigationResult(Some(value), _)) =>
+        extractor(value) match {
+          case Some(result) => Right(result)
+          case None =>
+            val actualType = getValueType(value)
+            Left(ToolParameterError.TypeMismatch(path, expectedType, actualType))
+        }
     }
+  }
 
   // Optional parameter extraction
   private def extractOptional[T](

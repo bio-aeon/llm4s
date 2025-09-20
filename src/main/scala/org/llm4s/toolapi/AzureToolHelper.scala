@@ -38,11 +38,9 @@ object AzureToolHelper {
 
     val tools = new java.util.ArrayList[ChatCompletionsToolDefinition]()
     for (toolObj <- toolsJson.arr) {
-
       val toolStr        = ujson.write(toolObj, indent = 2)
       val reader         = DefaultJsonReader.fromString(toolStr, new JsonOptions())
       val toolDefinition = ChatCompletionsToolDefinition.fromJson(reader)
-
       tools.add(toolDefinition)
     }
 

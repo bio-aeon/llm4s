@@ -8,7 +8,7 @@ import org.llm4s.error.LLMError
 import java.nio.file.{ Files, Paths }
 import java.time.Instant
 import java.util.Base64
-import scala.util.{ Failure, Success, Try }
+import scala.util.Try
 
 /**
  * Anthropic Claude Vision client for AI-powered image analysis.
@@ -29,45 +29,24 @@ class AnthropicVisionClient(config: AnthropicVisionConfig) extends org.llm4s.ima
     imagePath: String,
     prompt: Option[String] = None
   ): Either[LLMError, ImageAnalysisResult] =
-    try {
+    for {
       // First, get basic metadata using local processor
-      val basicAnalysis = localProcessor.analyzeImage(imagePath, None)
-      val metadata      = basicAnalysis.map(_.metadata).getOrElse(ImageMetadata(originalPath = Some(imagePath)))
-
+      basic <- localProcessor.analyzeImage(imagePath, None)
+      metadata = basic.metadata
       // Convert image to base64 for API call
-      val base64Image = encodeImageToBase64(imagePath) match {
-        case Success(encoded) => encoded
-        case Failure(exception) =>
-          return Left(
-            LLMError.processingFailed("encode", s"Failed to encode image: ${exception.getMessage}", Some(exception))
-          )
-      }
+      base64Image <- encodeImageToBase64(imagePath).toEither.left
+        .map(e => LLMError.processingFailed("encode", s"Failed to encode image: ${e.getMessage}", Some(e)))
 
       // Call Anthropic Vision API
-      val analysisPrompt = prompt.getOrElse(
+      analysisPrompt = prompt.getOrElse(
         "Analyze this image in detail. Describe what you see, identify any objects, text, or people present. " +
           "Provide tags that categorize the image content."
       )
-
       // Detect media type for proper API call
-      val mediaType = detectMediaType(imagePath)
-
-      val visionResponse = callAnthropicVisionAPI(base64Image, analysisPrompt, mediaType) match {
-        case Success(response) => response
-        case Failure(exception) =>
-          return Left(LLMError.apiCallFailed("Anthropic", s"Anthropic Vision API call failed: ${exception.getMessage}"))
-      }
-
-      // Parse the response and extract structured information
-      val parsedResult = parseVisionResponse(visionResponse, metadata)
-      Right(parsedResult)
-
-    } catch {
-      case e: Exception =>
-        Left(
-          LLMError.processingFailed("analyze", s"Error analyzing image with Anthropic Vision: ${e.getMessage}", Some(e))
-        )
-    }
+      mediaType = detectMediaType(imagePath)
+      visionResponse <- callAnthropicVisionAPI(base64Image, analysisPrompt, mediaType).toEither.left
+        .map(e => LLMError.apiCallFailed("Anthropic", s"Anthropic Vision API call failed: ${e.getMessage}"))
+    } yield parseVisionResponse(visionResponse, metadata) // Parse the response and extract structured information
 
   /**
    * Preprocesses an image by applying a sequence of operations.
@@ -233,23 +212,20 @@ class AnthropicVisionClient(config: AnthropicVisionConfig) extends org.llm4s.ima
         case statusCode =>
           val errorMessage = response.body match {
             case Left(errorBody) =>
-              // Try to parse Anthropic error format
-              try {
-                val json      = read(errorBody)
-                val error     = json.obj.get("error")
-                val message   = error.flatMap(_.obj.get("message")).map(_.str)
-                val errorType = error.flatMap(_.obj.get("type")).map(_.str)
-                val details = (message, errorType) match {
-                  case (Some(msg), Some(typ)) => s"$typ: $msg"
-                  case (Some(msg), None)      => msg
-                  case _                      => errorBody
+              Try(read(errorBody)).toOption
+                .flatMap(js => js.obj.get("error"))
+                .map { err =>
+                  val message   = err.obj.get("message").flatMap(_.strOpt)
+                  val errorType = err.obj.get("type").flatMap(_.strOpt)
+                  (message, errorType) match {
+                    case (Some(msg), Some(typ)) => s"$typ: $msg"
+                    case (Some(msg), None)      => msg
+                    case _                      => errorBody
+                  }
                 }
-                s"Status $statusCode: $details"
-              } catch {
-                case _: Exception => s"Status $statusCode: $errorBody"
-              }
-            case Right(body) =>
-              s"Status $statusCode: $body"
+                .map(d => s"Status $statusCode: $d")
+                .getOrElse(s"Status $statusCode: $errorBody")
+            case Right(body) => s"Status $statusCode: $body"
           }
           throw new RuntimeException(s"Anthropic API call failed - $errorMessage")
       }
@@ -258,16 +234,13 @@ class AnthropicVisionClient(config: AnthropicVisionConfig) extends org.llm4s.ima
   private def extractContentFromResponse(jsonResponse: String): String = {
     import ujson._
 
-    try {
-      val json = read(jsonResponse)
-      // Anthropic's response format has content in messages[0].content[0].text
-      json("content").arr.headOption
-        .flatMap(_.obj.get("text"))
-        .map(_.str)
-        .getOrElse("Could not parse response from Anthropic Vision API")
-    } catch {
-      case _: Exception => "Could not parse response from Anthropic Vision API"
-    }
+    Try(read(jsonResponse)).toOption
+      .flatMap { json =>
+        json("content").arr.headOption
+          .flatMap(_.obj.get("text"))
+          .map(_.str)
+      }
+      .getOrElse("Could not parse response from Anthropic Vision API")
   }
 
   private def parseVisionResponse(response: String, metadata: ImageMetadata): ImageAnalysisResult = {

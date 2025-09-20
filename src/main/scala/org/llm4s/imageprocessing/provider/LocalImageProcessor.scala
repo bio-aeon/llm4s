@@ -2,11 +2,13 @@ package org.llm4s.imageprocessing.provider
 
 import org.llm4s.imageprocessing._
 import org.llm4s.error.LLMError
+
 import java.awt.image.BufferedImage
 import java.awt.{ RenderingHints, Color }
 import java.io.{ ByteArrayOutputStream, File }
 import javax.imageio.ImageIO
 import java.time.Instant
+import scala.util.Try
 
 /**
  * Local image processor that uses Java's built-in image processing capabilities.
@@ -21,95 +23,87 @@ class LocalImageProcessor extends org.llm4s.imageprocessing.ImageProcessingClien
   ): Either[LLMError, ImageAnalysisResult] =
     // Local processor can only provide basic metadata analysis
     // For AI-powered analysis, use OpenAI or Anthropic clients
-    try {
-      val bufferedImage = ImageIO.read(new File(imagePath))
-      if (bufferedImage == null) {
-        return Left(LLMError.invalidImageInput("path", imagePath, "Could not read image from path"))
+    Try(ImageIO.read(new File(imagePath))).toEither.left
+      .map(e => LLMError.processingFailed("analyze", s"Error reading image: ${e.getMessage}", Some(e)))
+      .flatMap { bufferedImage =>
+        if (bufferedImage == null)
+          Left(LLMError.invalidImageInput("path", imagePath, "Could not read image from path"))
+        else {
+          val metadata      = extractImageMetadata(imagePath, bufferedImage)
+          val basicAnalysis = generateBasicAnalysis(bufferedImage, prompt)
+          Right(
+            ImageAnalysisResult(
+              description = basicAnalysis,
+              confidence = 0.5, // Low confidence for basic analysis
+              tags = extractBasicTags(bufferedImage),
+              objects = List.empty,
+              emotions = List.empty,
+              text = None,
+              metadata = metadata
+            )
+          )
+        }
       }
-
-      val metadata      = extractImageMetadata(imagePath, bufferedImage)
-      val basicAnalysis = generateBasicAnalysis(bufferedImage, prompt)
-
-      Right(
-        ImageAnalysisResult(
-          description = basicAnalysis,
-          confidence = 0.5, // Low confidence for basic analysis
-          tags = extractBasicTags(bufferedImage),
-          objects = List.empty,  // No object detection in local processor
-          emotions = List.empty, // No emotion detection in local processor
-          text = None,           // No OCR in basic local processor
-          metadata = metadata
-        )
-      )
-    } catch {
-      case e: Exception =>
-        Left(LLMError.processingFailed("analyze", s"Error analyzing image: ${e.getMessage}", Some(e)))
-    }
 
   override def preprocessImage(
     imagePath: String,
     operations: List[ImageOperation]
   ): Either[LLMError, ProcessedImage] =
-    try {
-      val originalImage = ImageIO.read(new File(imagePath))
-      if (originalImage == null) {
-        return Left(LLMError.invalidImageInput("path", imagePath, "Could not read image from path"))
+    Try(ImageIO.read(new File(imagePath))).toEither.left
+      .map(e => LLMError.processingFailed("process", s"Error reading image: ${e.getMessage}", Some(e)))
+      .flatMap { originalImage =>
+        if (originalImage == null)
+          Left(LLMError.invalidImageInput("path", imagePath, "Could not read image from path"))
+        else {
+          val processedEither = operations.foldLeft[Either[LLMError, BufferedImage]](Right(originalImage)) {
+            case (acc, op) => acc.flatMap(img => applyOperationEither(img, op))
+          }
+          processedEither.map { processedImage =>
+            val format    = ImageFormat.PNG // Default output format
+            val imageData = convertToByteArray(processedImage, format)
+            val metadata = ImageMetadata(
+              originalPath = Some(imagePath),
+              processedAt = Instant.now(),
+              operations = operations
+            )
+            ProcessedImage(
+              data = imageData,
+              format = format,
+              width = processedImage.getWidth,
+              height = processedImage.getHeight,
+              metadata = metadata
+            )
+          }
+        }
       }
-
-      val processedImage = operations.foldLeft(originalImage)((img, operation) => applyOperation(img, operation))
-
-      val format    = ImageFormat.PNG // Default output format
-      val imageData = convertToByteArray(processedImage, format)
-      val metadata = ImageMetadata(
-        originalPath = Some(imagePath),
-        processedAt = Instant.now(),
-        operations = operations
-      )
-
-      Right(
-        ProcessedImage(
-          data = imageData,
-          format = format,
-          width = processedImage.getWidth,
-          height = processedImage.getHeight,
-          metadata = metadata
-        )
-      )
-    } catch {
-      case e: Exception =>
-        Left(LLMError.processingFailed("process", s"Error processing image: ${e.getMessage}", Some(e)))
-    }
 
   override def convertFormat(
     imagePath: String,
     targetFormat: ImageFormat
   ): Either[LLMError, ProcessedImage] =
-    try {
-      val originalImage = ImageIO.read(new File(imagePath))
-      if (originalImage == null) {
-        return Left(LLMError.invalidImageInput("path", imagePath, "Could not read image from path"))
+    Try(ImageIO.read(new File(imagePath))).toEither.left
+      .map(e => LLMError.processingFailed("convert", s"Error reading image: ${e.getMessage}", Some(e)))
+      .flatMap { originalImage =>
+        if (originalImage == null)
+          Left(LLMError.invalidImageInput("path", imagePath, "Could not read image from path"))
+        else {
+          val imageData = convertToByteArray(originalImage, targetFormat)
+          val metadata = ImageMetadata(
+            originalPath = Some(imagePath),
+            processedAt = Instant.now(),
+            operations = List.empty
+          )
+          Right(
+            ProcessedImage(
+              data = imageData,
+              format = targetFormat,
+              width = originalImage.getWidth,
+              height = originalImage.getHeight,
+              metadata = metadata
+            )
+          )
+        }
       }
-
-      val imageData = convertToByteArray(originalImage, targetFormat)
-      val metadata = ImageMetadata(
-        originalPath = Some(imagePath),
-        processedAt = Instant.now(),
-        operations = List.empty
-      )
-
-      Right(
-        ProcessedImage(
-          data = imageData,
-          format = targetFormat,
-          width = originalImage.getWidth,
-          height = originalImage.getHeight,
-          metadata = metadata
-        )
-      )
-    } catch {
-      case e: Exception =>
-        Left(LLMError.processingFailed("convert", s"Error converting image format: ${e.getMessage}", Some(e)))
-    }
 
   override def resizeImage(
     imagePath: String,
@@ -123,31 +117,37 @@ class LocalImageProcessor extends org.llm4s.imageprocessing.ImageProcessingClien
 
   // Private helper methods
 
-  private def applyOperation(image: BufferedImage, operation: ImageOperation): BufferedImage =
+  private def applyOperationEither(image: BufferedImage, operation: ImageOperation): Either[LLMError, BufferedImage] =
     operation match {
       case ImageOperation.Resize(width, height, maintainAspectRatio) =>
-        resizeBufferedImage(image, width, height, maintainAspectRatio)
+        if (width <= 0 || height <= 0)
+          Left(LLMError.invalidImageInput("resize", s"${width}x${height}", "Width and height must be > 0"))
+        else Right(resizeBufferedImage(image, width, height, maintainAspectRatio))
 
       case ImageOperation.Crop(x, y, width, height) =>
-        cropBufferedImage(image, x, y, width, height)
+        val withinBounds = x >= 0 && y >= 0 && width > 0 && height > 0 &&
+          (x + width) <= image.getWidth && (y + height) <= image.getHeight
+        if (!withinBounds)
+          Left(LLMError.invalidImageInput("crop", s"x=$x y=$y w=$width h=$height", "Crop rectangle out of bounds"))
+        else Right(cropBufferedImage(image, x, y, width, height))
 
       case ImageOperation.Rotate(degrees) =>
-        rotateBufferedImage(image, degrees)
+        Right(rotateBufferedImage(image, degrees))
 
       case ImageOperation.Blur(radius) =>
-        blurBufferedImage(image, radius)
+        Right(blurBufferedImage(image, radius))
 
       case ImageOperation.Brightness(level) =>
-        adjustBrightness(image, level)
+        Right(adjustBrightness(image, level))
 
       case ImageOperation.Contrast(level) =>
-        adjustContrast(image, level)
+        Right(adjustContrast(image, level))
 
       case ImageOperation.Grayscale =>
-        convertToGrayscale(image)
+        Right(convertToGrayscale(image))
 
       case ImageOperation.Normalize =>
-        normalizeImage(image)
+        Right(normalizeImage(image))
     }
 
   private def resizeBufferedImage(

@@ -674,18 +674,17 @@ class StdioTransportImpl(command: Seq[String], override val name: String) extend
     stderrReader match {
       case Some(reader) =>
         val output = new StringBuilder
-        try
-          while (reader.ready()) {
-            val line = reader.readLine()
-            if (line != null) {
-              output.append(line).append("\n")
-              logger.info(s"StdioTransport($name) stderr: $line")
+        scala.util
+          .Try {
+            while (reader.ready()) {
+              val line = reader.readLine()
+              if (line != null) {
+                output.append(line).append("\n")
+                logger.info(s"StdioTransport($name) stderr: $line")
+              }
             }
           }
-        catch {
-          case e: Exception =>
-            logger.debug(s"Error reading stderr: ${e.getMessage}")
-        }
+          .fold(e => logger.debug(s"Error reading stderr: ${e.getMessage}"), _ => ())
         output.toString
       case None => ""
     }

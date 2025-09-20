@@ -4,6 +4,7 @@ import org.llm4s.imagegeneration._
 import org.slf4j.LoggerFactory
 import ujson._
 import java.time.Instant
+import scala.util.Try
 
 /**
  * OpenAI DALL-E API client for image generation.
@@ -65,23 +66,18 @@ class OpenAIImageClient(config: OpenAIConfig) extends ImageGenerationClient {
     prompt: String,
     count: Int,
     options: ImageGenerationOptions = ImageGenerationOptions()
-  ): Either[ImageGenerationError, Seq[GeneratedImage]] =
-    try {
-      logger.info(s"Generating $count image(s) with prompt: ${prompt.take(100)}...")
+  ): Either[ImageGenerationError, Seq[GeneratedImage]] = {
+    logger.info(s"Generating $count image(s) with prompt: ${prompt.take(100)}...")
 
-      // Validate input
-      for {
-        validPrompt <- validatePrompt(prompt)
-        validCount  <- validateCount(count)
-        response    <- makeApiRequest(validPrompt, validCount, options)
-        images      <- parseResponse(response, validPrompt, options)
-      } yield images
-
-    } catch {
-      case e: Exception =>
-        logger.error(s"Error generating images: ${e.getMessage}", e)
-        Left(UnknownError(e))
-    }
+    // Validate input
+    val result = for {
+      validPrompt <- validatePrompt(prompt)
+      validCount  <- validateCount(count)
+      response    <- makeApiRequest(validPrompt, validCount, options)
+      images      <- parseResponse(response, validPrompt, options)
+    } yield images
+    result
+  }
 
   /**
    * Check the health/status of the OpenAI API service.
@@ -89,47 +85,37 @@ class OpenAIImageClient(config: OpenAIConfig) extends ImageGenerationClient {
    * Note: OpenAI doesn't provide a dedicated health endpoint,
    * so we use a minimal models list request as a health check.
    */
-  override def health(): Either[ImageGenerationError, ServiceStatus] =
-    try {
-      val response = requests.get(
-        "https://api.openai.com/v1/models",
-        headers = Map("Authorization" -> s"Bearer ${config.apiKey}"),
-        readTimeout = 5000,
-        connectTimeout = 5000
-      )
+  override def health(): Either[ImageGenerationError, ServiceStatus] = {
+    val response = requests.get(
+      "https://api.openai.com/v1/models",
+      headers = Map("Authorization" -> s"Bearer ${config.apiKey}"),
+      readTimeout = 5000,
+      connectTimeout = 5000
+    )
 
-      if (response.statusCode == 200) {
-        Right(
-          ServiceStatus(
-            status = HealthStatus.Healthy,
-            message = "OpenAI API is responding"
-          )
+    if (response.statusCode == 200) {
+      Right(
+        ServiceStatus(
+          status = HealthStatus.Healthy,
+          message = "OpenAI API is responding"
         )
-      } else if (response.statusCode == 429) {
-        Right(
-          ServiceStatus(
-            status = HealthStatus.Degraded,
-            message = "Rate limited but operational"
-          )
+      )
+    } else if (response.statusCode == 429) {
+      Right(
+        ServiceStatus(
+          status = HealthStatus.Degraded,
+          message = "Rate limited but operational"
         )
-      } else {
-        Right(
-          ServiceStatus(
-            status = HealthStatus.Unhealthy,
-            message = s"API returned status ${response.statusCode}"
-          )
+      )
+    } else {
+      Right(
+        ServiceStatus(
+          status = HealthStatus.Unhealthy,
+          message = s"API returned status ${response.statusCode}"
         )
-      }
-    } catch {
-      case e: Exception =>
-        logger.error(s"Health check failed: ${e.getMessage}", e)
-        Right(
-          ServiceStatus(
-            status = HealthStatus.Unhealthy,
-            message = s"Cannot reach OpenAI API: ${e.getMessage}"
-          )
-        )
+      )
     }
+  }
 
   /**
    * Validate the prompt to ensure it meets OpenAI's requirements.
@@ -174,54 +160,47 @@ class OpenAIImageClient(config: OpenAIConfig) extends ImageGenerationClient {
     prompt: String,
     count: Int,
     options: ImageGenerationOptions
-  ): Either[ImageGenerationError, requests.Response] =
-    try {
-      val requestBody = Obj(
-        "model"           -> config.model,
-        "prompt"          -> prompt,
-        "n"               -> count,
-        "size"            -> sizeToApiFormat(options.size),
-        "response_format" -> "b64_json"
-      )
+  ): Either[ImageGenerationError, requests.Response] = {
+    val requestBody = Obj(
+      "model"           -> config.model,
+      "prompt"          -> prompt,
+      "n"               -> count,
+      "size"            -> sizeToApiFormat(options.size),
+      "response_format" -> "b64_json"
+    )
 
-      // Add quality parameter for DALL-E 3
-      if (config.model == "dall-e-3") {
-        requestBody("quality") = "standard" // or "hd" for higher quality
-      }
-
-      val response = requests.post(
-        apiUrl,
-        headers = Map(
-          "Authorization" -> s"Bearer ${config.apiKey}",
-          "Content-Type"  -> "application/json"
-        ),
-        data = requestBody.toString,
-        readTimeout = config.timeout,
-        connectTimeout = 10000
-      )
-
-      if (response.statusCode == 200) {
-        Right(response)
-      } else {
-        handleErrorResponse(response)
-      }
-    } catch {
-      case e: Exception =>
-        logger.error(s"API request failed: ${e.getMessage}", e)
-        Left(ServiceError(s"Request failed: ${e.getMessage}", 0))
+    // Add quality parameter for DALL-E 3
+    if (config.model == "dall-e-3") {
+      requestBody("quality") = "standard" // or "hd" for higher quality
     }
+
+    val response = requests.post(
+      apiUrl,
+      headers = Map(
+        "Authorization" -> s"Bearer ${config.apiKey}",
+        "Content-Type"  -> "application/json"
+      ),
+      data = requestBody.toString,
+      readTimeout = config.timeout,
+      connectTimeout = 10000
+    )
+
+    if (response.statusCode == 200) {
+      Right(response)
+    } else {
+      handleErrorResponse(response)
+    }
+  }
 
   /**
    * Handle error responses from the API.
    */
   private def handleErrorResponse(response: requests.Response): Either[ImageGenerationError, requests.Response] = {
-    val errorMessage =
-      try {
-        val json = read(response.text())
-        json("error")("message").str
-      } catch {
-        case _: Exception => response.text()
-      }
+    val errorMessage = Try {
+      val json = read(response.text())
+      json("error")("message").str
+    }
+      .getOrElse(response.text())
 
     response.statusCode match {
       case 401  => Left(AuthenticationError("Invalid API key"))
@@ -238,30 +217,25 @@ class OpenAIImageClient(config: OpenAIConfig) extends ImageGenerationClient {
     response: requests.Response,
     prompt: String,
     options: ImageGenerationOptions
-  ): Either[ImageGenerationError, Seq[GeneratedImage]] =
-    try {
-      val json       = read(response.text())
-      val imagesData = json("data").arr
+  ): Either[ImageGenerationError, Seq[GeneratedImage]] = {
+    val json       = read(response.text())
+    val imagesData = json("data").arr
 
-      val images = imagesData.map { imageData =>
-        val base64Data = imageData("b64_json").str
+    val images = imagesData.map { imageData =>
+      val base64Data = imageData("b64_json").str
 
-        GeneratedImage(
-          data = base64Data,
-          format = options.format,
-          size = options.size,
-          createdAt = Instant.now(),
-          prompt = prompt,
-          seed = options.seed,
-          filePath = None
-        )
-      }.toSeq
+      GeneratedImage(
+        data = base64Data,
+        format = options.format,
+        size = options.size,
+        createdAt = Instant.now(),
+        prompt = prompt,
+        seed = options.seed,
+        filePath = None
+      )
+    }.toSeq
 
-      logger.info(s"Successfully generated ${images.length} image(s)")
-      Right(images)
-    } catch {
-      case e: Exception =>
-        logger.error(s"Failed to parse response: ${e.getMessage}", e)
-        Left(ServiceError(s"Failed to parse response: ${e.getMessage}", 500))
-    }
+    logger.info(s"Successfully generated ${images.length} image(s)")
+    Right(images)
+  }
 }

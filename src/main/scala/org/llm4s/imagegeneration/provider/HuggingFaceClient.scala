@@ -152,35 +152,23 @@ class HuggingFaceClient(config: HuggingFaceConfig, httpClient: BaseHttpClient) e
    * @return Either an error or the current service status
    */
   override def health(): Either[ImageGenerationError, ServiceStatus] =
-    try {
-      val testUrl = s"https://api-inference.huggingface.co/models/${config.model}"
-      val headers = Map(
-        "Authorization" -> s"Bearer ${config.apiKey}",
-        "Content-Type"  -> "application/json"
-      )
-
-      val response = requests.get(testUrl, headers = headers, readTimeout = 10000)
-
-      if (response.statusCode == 200) {
-        Right(
-          ServiceStatus(
-            status = HealthStatus.Healthy,
-            message = "HuggingFace Inference API is responding"
-          )
+    scala.util
+      .Try {
+        val testUrl = s"https://api-inference.huggingface.co/models/${config.model}"
+        val headers = Map(
+          "Authorization" -> s"Bearer ${config.apiKey}",
+          "Content-Type"  -> "application/json"
         )
-      } else {
-        Right(
-          ServiceStatus(
-            status = HealthStatus.Degraded,
-            message = s"Service returned status code: ${response.statusCode}"
-          )
-        )
+        requests.get(testUrl, headers = headers, readTimeout = 10000)
       }
-    } catch {
-      case e: Exception =>
-        logger.warn(s"Health check failed: ${e.getMessage}")
-        Left(ServiceError(s"Health check failed: ${e.getMessage}", 0))
-    }
+      .toEither
+      .left
+      .map(e => ServiceError(s"Health check failed: ${e.getMessage}", 0))
+      .map { response =>
+        if (response.statusCode == 200)
+          ServiceStatus(HealthStatus.Healthy, "HuggingFace Inference API is responding")
+        else ServiceStatus(HealthStatus.Degraded, s"Service returned status code: ${response.statusCode}")
+      }
 
   /**
    * Serializes a `HuggingClientPayload` object into a JSON string.

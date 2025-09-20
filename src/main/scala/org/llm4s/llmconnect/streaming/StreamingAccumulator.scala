@@ -1,7 +1,6 @@
 package org.llm4s.llmconnect.streaming
 
 import org.llm4s.llmconnect.model._
-import org.llm4s.error.ServiceError
 import org.llm4s.types.Result
 
 import scala.collection.mutable
@@ -87,44 +86,29 @@ class StreamingAccumulator {
   /**
    * Convert accumulated data to a Completion
    */
-  def toCompletion: Result[Completion] =
-    try {
-      // Finalize tool calls
-      val finalToolCalls = getCurrentToolCalls
+  def toCompletion: Result[Completion] = {
+    val finalToolCalls = getCurrentToolCalls
 
-      // Create the assistant message
-      val message = AssistantMessage(
-        contentOpt = if (contentBuilder.isEmpty) None else Some(contentBuilder.toString),
-        toolCalls = finalToolCalls
+    val message = AssistantMessage(
+      contentOpt = if (contentBuilder.isEmpty) None else Some(contentBuilder.toString),
+      toolCalls = finalToolCalls
+    )
+
+    val usage = if (promptTokens > 0 || completionTokens > 0) {
+      Some(TokenUsage(promptTokens, completionTokens, promptTokens + completionTokens))
+    } else None
+
+    Right(
+      Completion(
+        id = messageId.getOrElse(""),
+        created = System.currentTimeMillis() / 1000,
+        content = contentBuilder.toString(),
+        model = "unknown",
+        message = message,
+        usage = usage
       )
-
-      // Create token usage if available
-      val usage = if (promptTokens > 0 || completionTokens > 0) {
-        Some(
-          TokenUsage(
-            promptTokens = promptTokens,
-            completionTokens = completionTokens,
-            totalTokens = promptTokens + completionTokens
-          )
-        )
-      } else {
-        None
-      }
-
-      Right(
-        Completion(
-          id = messageId.getOrElse(""),
-          created = System.currentTimeMillis() / 1000,
-          content = contentBuilder.toString(),
-          model = "unknown", // Model info not tracked here
-          message = message,
-          usage = usage
-        )
-      )
-    } catch {
-      case e: Exception =>
-        Left(ServiceError(500, "streaming", s"Error creating completion from stream: ${e.getMessage}"))
-    }
+    )
+  }
 
   /**
    * Update token counts

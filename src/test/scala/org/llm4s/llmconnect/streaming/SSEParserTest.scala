@@ -42,7 +42,7 @@ class SSEParserTest extends AnyFunSuite with Matchers {
     event.event shouldBe None
   }
 
-  test("parseEvent should handle multi-line data") {
+  test("parseEvent should handle multi-line data with newline joins") {
     val eventString = """data: line 1
                          |data: line 2
                          |data: line 3
@@ -50,7 +50,7 @@ class SSEParserTest extends AnyFunSuite with Matchers {
 
     val event = SSEParser.parseEvent(eventString)
 
-    event.data shouldBe Some("line 1line 2line 3")
+    event.data shouldBe Some("line 1\nline 2\nline 3")
   }
 
   test("parseStream should parse multiple events") {

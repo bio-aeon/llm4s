@@ -12,6 +12,7 @@ import org.slf4j.LoggerFactory
 import java.time.Instant
 import java.time.format.DateTimeFormatter
 import java.util.UUID
+import scala.util.Try
 
 /**
  * Enhanced Langfuse tracing with type-safe events
@@ -43,7 +44,7 @@ class EnhancedLangfuseTracing(
 
     val batchPayload = ujson.Obj("batch" -> ujson.Arr(events: _*))
 
-    try {
+    val attempt = Try {
       val response = requests.post(
         langfuseUrl,
         data = batchPayload.render(),
@@ -55,25 +56,28 @@ class EnhancedLangfuseTracing(
         readTimeout = 30000,
         connectTimeout = 30000
       )
-
-      if (response.statusCode == 207 || (response.statusCode >= 200 && response.statusCode < 300)) {
-        logger.info(s"[Langfuse] Batch export successful: ${response.statusCode}")
-        if (response.statusCode == 207) {
-          logger.info(s"[Langfuse] Partial success response: ${response.text()}")
-        }
-        Right(())
-      } else {
-        logger.error(s"[Langfuse] Batch export failed: ${response.statusCode}")
-        logger.error(s"[Langfuse] Response body: ${response.text()}")
-        val runtimeException = new RuntimeException(s"Langfuse export failed: ${response.statusCode}")
-        Left(UnknownError(runtimeException.getMessage, runtimeException))
-      }
-    } catch {
-      case e: Exception =>
+      response
+    }
+    attempt.toEither.left
+      .map { e =>
         logger.error(s"[Langfuse] Batch export failed with exception: ${e.getMessage}", e)
         logger.error(s"[Langfuse] Request URL: $langfuseUrl")
-        Left(UnknownError(e.getMessage, e))
-    }
+        UnknownError(e.getMessage, e)
+      }
+      .flatMap { response =>
+        if (response.statusCode == 207 || (response.statusCode >= 200 && response.statusCode < 300)) {
+          logger.info(s"[Langfuse] Batch export successful: ${response.statusCode}")
+          if (response.statusCode == 207) {
+            logger.info(s"[Langfuse] Partial success response: ${response.text()}")
+          }
+          Right(())
+        } else {
+          logger.error(s"[Langfuse] Batch export failed: ${response.statusCode}")
+          logger.error(s"[Langfuse] Response body: ${response.text()}")
+          val runtimeException = new RuntimeException(s"Langfuse export failed: ${response.statusCode}")
+          Left(UnknownError(runtimeException.getMessage, runtimeException))
+        }
+      }
   }
 
   def traceEvent(event: TraceEvent): Result[Unit] = {

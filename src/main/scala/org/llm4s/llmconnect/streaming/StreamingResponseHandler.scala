@@ -85,36 +85,35 @@ class OpenAIStreamingHandler extends BaseStreamingResponseHandler {
   private val sseParser = SSEParser.createStreamingParser()
 
   override def processChunk(chunk: String): Result[Option[StreamedChunk]] =
-    try {
-      sseParser.addChunk(chunk)
+    scala.util
+      .Try {
+        sseParser.addChunk(chunk)
 
-      var latestChunk: Option[StreamedChunk] = None
-
-      while (sseParser.hasEvents)
-        sseParser.nextEvent().foreach { event =>
-          event.data.foreach { data =>
-            if (data == "[DONE]") {
-              markComplete()
-            } else {
-              // Parse OpenAI streaming format
-              Try(ujson.read(data)).toOption.foreach { json =>
-                val streamedChunk = parseOpenAIChunk(json)
-                streamedChunk.foreach { chunk =>
-                  accumulator.addChunk(chunk)
-                  latestChunk = Some(chunk)
+        var latestChunk: Option[StreamedChunk] = None
+        while (sseParser.hasEvents)
+          sseParser.nextEvent().foreach { event =>
+            event.data.foreach { data =>
+              if (data == "[DONE]") markComplete()
+              else {
+                Try(ujson.read(data)).toOption.foreach { json =>
+                  val streamedChunk = parseOpenAIChunk(json)
+                  streamedChunk.foreach { c =>
+                    accumulator.addChunk(c)
+                    latestChunk = Some(c)
+                  }
                 }
               }
             }
           }
-        }
-
-      Right(latestChunk)
-    } catch {
-      case e: Exception =>
+        latestChunk
+      }
+      .toEither
+      .left
+      .map { e =>
         val error = ServiceError(500, "openai", s"Error processing OpenAI stream: ${e.getMessage}")
         handleError(error)
-        Left(error)
-    }
+        error
+      }
 
   private def parseOpenAIChunk(json: Value): Option[StreamedChunk] =
     Try {
@@ -173,47 +172,43 @@ class AnthropicStreamingHandler extends BaseStreamingResponseHandler {
   private var currentMessageId: Option[String] = None
 
   override def processChunk(chunk: String): Result[Option[StreamedChunk]] =
-    try {
-      sseParser.addChunk(chunk)
+    scala.util
+      .Try {
+        sseParser.addChunk(chunk)
 
-      var latestChunk: Option[StreamedChunk] = None
-
-      while (sseParser.hasEvents)
-        sseParser.nextEvent().foreach { event =>
-          event.event match {
-            case Some("message_start") =>
-              event.data.foreach { data =>
-                Try(ujson.read(data)).toOption.foreach { json =>
-                  currentMessageId = json.obj.get("message").flatMap(_("id").strOpt)
-                }
-              }
-
-            case Some("content_block_delta") =>
-              event.data.foreach { data =>
-                Try(ujson.read(data)).toOption.foreach { json =>
-                  val chunk = parseAnthropicDelta(json)
-                  chunk.foreach { c =>
-                    accumulator.addChunk(c)
-                    latestChunk = Some(c)
+        var latestChunk: Option[StreamedChunk] = None
+        while (sseParser.hasEvents)
+          sseParser.nextEvent().foreach { event =>
+            event.event match {
+              case Some("message_start") =>
+                event.data.foreach { data =>
+                  Try(ujson.read(data)).toOption.foreach { json =>
+                    currentMessageId = json.obj.get("message").flatMap(_("id").strOpt)
                   }
                 }
-              }
-
-            case Some("message_stop") =>
-              markComplete()
-
-            case _ =>
-            // Handle other event types if needed
+              case Some("content_block_delta") =>
+                event.data.foreach { data =>
+                  Try(ujson.read(data)).toOption.foreach { json =>
+                    val chunk = parseAnthropicDelta(json)
+                    chunk.foreach { c =>
+                      accumulator.addChunk(c)
+                      latestChunk = Some(c)
+                    }
+                  }
+                }
+              case Some("message_stop") => markComplete()
+              case _                    =>
+            }
           }
-        }
-
-      Right(latestChunk)
-    } catch {
-      case e: Exception =>
+        latestChunk
+      }
+      .toEither
+      .left
+      .map { e =>
         val error = ServiceError(500, "anthropic", s"Error processing Anthropic stream: ${e.getMessage}")
         handleError(error)
-        Left(error)
-    }
+        error
+      }
 
   private def parseAnthropicDelta(json: Value): Option[StreamedChunk] =
     Try {

@@ -130,15 +130,10 @@ class ContainerisedWorkspace(val workspaceDir: String) extends WorkspaceAgentInt
   private def handleStreamingOutput(commandId: String, outputType: String, content: String, isComplete: Boolean): Unit =
     Option(streamingHandlers.get(commandId)) match {
       case Some(handler) =>
-        try {
-          handler(StreamingOutputMessage(commandId, outputType, content, isComplete))
-          if (isComplete) {
-            streamingHandlers.remove(commandId)
-          }
-        } catch {
-          case ex: Exception =>
-            logger.error(s"Error in streaming handler for command $commandId: ${ex.getMessage}", ex)
+        Try(handler(StreamingOutputMessage(commandId, outputType, content, isComplete))).failed.foreach { ex =>
+          logger.error(s"Error in streaming handler for command $commandId: ${ex.getMessage}", ex)
         }
+        if (isComplete) streamingHandlers.remove(commandId)
       case None =>
         logger.debug(s"No streaming handler registered for command $commandId")
     }
@@ -215,21 +210,15 @@ class ContainerisedWorkspace(val workspaceDir: String) extends WorkspaceAgentInt
 
     var attempts = 0
     while (attempts < MaxStartupAttempts) {
-      try {
-        // First check if HTTP endpoint is responding
-        val httpResponse = requests.get(s"http://localhost:$port/", readTimeout = 1000, connectTimeout = 1000)
-        if (httpResponse.statusCode == 200) {
-          logger.info("HTTP endpoint is responding, attempting WebSocket connection...")
-
-          // Now try to establish WebSocket connection
-          if (connectWebSocket()) {
-            logger.info("WebSocket connection established successfully")
-            return true
-          }
+      val ok = scala.util
+        .Try {
+          val httpResponse = requests.get(s"http://localhost:$port/", readTimeout = 1000, connectTimeout = 1000)
+          httpResponse.statusCode == 200 && connectWebSocket()
         }
-      } catch {
-        case _: Exception =>
-        // Expected during startup
+        .getOrElse(false)
+      if (ok) {
+        logger.info("WebSocket connection established successfully")
+        return true
       }
 
       attempts += 1
@@ -241,24 +230,15 @@ class ContainerisedWorkspace(val workspaceDir: String) extends WorkspaceAgentInt
     false
   }
 
-  private def connectWebSocket(): Boolean =
-    try {
+  private def connectWebSocket(): Boolean = {
+    val attempt = Try {
       val client = new WorkspaceWebSocketClient(new URI(wsUrl))
       wsClient.set(client)
-
       val connected = client.connectBlocking(ConnectionTimeoutMs, TimeUnit.MILLISECONDS)
-      if (connected && wsConnected.get()) {
-        logger.info("WebSocket connection established")
-        true
-      } else {
-        logger.error("Failed to establish WebSocket connection")
-        false
-      }
-    } catch {
-      case ex: Exception =>
-        logger.error(s"Exception connecting WebSocket: ${ex.getMessage}", ex)
-        false
+      connected && wsConnected.get()
     }
+    attempt.recover { case ex => logger.error(s"Exception connecting WebSocket: ${ex.getMessage}", ex); false }.get
+  }
 
   private def startHeartbeatTask(): Unit = {
     logger.info("Starting heartbeat task")
@@ -266,12 +246,10 @@ class ContainerisedWorkspace(val workspaceDir: String) extends WorkspaceAgentInt
     heartbeatExecutor.scheduleAtFixedRate(
       () =>
         if (containerRunning.get() && wsConnected.get()) {
-          try
-            sendHeartbeat()
-          catch {
-            case e: Exception =>
-              logger.warn(s"Failed to send heartbeat: ${e.getMessage}")
-              handleContainerDown()
+          val hb = Try(sendHeartbeat())
+          hb.failed.foreach { e =>
+            logger.warn(s"Failed to send heartbeat: ${e.getMessage}")
+            handleContainerDown()
           }
         },
       0,
@@ -304,23 +282,16 @@ class ContainerisedWorkspace(val workspaceDir: String) extends WorkspaceAgentInt
 
     // Close WebSocket connection
     Option(wsClient.get()).foreach { client =>
-      try
-        client.close()
-      catch {
-        case ex: Exception =>
-          logger.error(s"Error closing WebSocket: ${ex.getMessage}", ex)
-      }
+      scala.util
+        .Try(client.close())
+        .failed
+        .foreach(ex => logger.error(s"Error closing WebSocket: ${ex.getMessage}", ex))
     }
 
     // Shutdown heartbeat task
     heartbeatExecutor.shutdown()
-    try
-      if (!heartbeatExecutor.awaitTermination(3, TimeUnit.SECONDS)) {
-        heartbeatExecutor.shutdownNow()
-      }
-    catch {
-      case _: InterruptedException => heartbeatExecutor.shutdownNow()
-    }
+    val term = Try(heartbeatExecutor.awaitTermination(3, TimeUnit.SECONDS)).getOrElse(false)
+    if (!term) heartbeatExecutor.shutdownNow()
 
     // Execute stop and remove as separate commands
     val stopResult = Try {
@@ -372,34 +343,26 @@ class ContainerisedWorkspace(val workspaceDir: String) extends WorkspaceAgentInt
     val future = new CompletableFuture[WorkspaceAgentResponse]()
     pendingResponses.put(command.commandId, future)
 
-    try {
-      val message = CommandMessage(command)
-      val json    = write(message)
-
-      Option(wsClient.get()) match {
-        case Some(client) if client.isOpen =>
-          client.send(json)
-          logger.debug(s"Sent command: ${command.getClass.getSimpleName} with ID: ${command.commandId}")
-        case _ =>
-          pendingResponses.remove(command.commandId)
-          throw new RuntimeException("WebSocket client is not connected")
+    val sendEither = for {
+      json <- Try(write(CommandMessage(command))).toEither.left.map(_.getMessage)
+      _ <- Option(wsClient.get()).filter(_.isOpen).toRight("WebSocket client is not connected").map { client =>
+        client.send(json)
+        logger.debug(s"Sent command: ${command.getClass.getSimpleName} with ID: ${command.commandId}")
       }
-
-      // Wait for response with timeout
-      val response = future.get(30, TimeUnit.SECONDS)
-
-      response match {
-        case error: WorkspaceAgentErrorResponse =>
-          throw new WorkspaceAgentException(error.error, error.code, error.details)
-        case _ =>
-          response
+      response <- Try(future.get(30, TimeUnit.SECONDS)).toEither.left.map(_.getMessage)
+      finalResp <- response match {
+        case error: WorkspaceAgentErrorResponse => Left(s"${error.code}: ${error.error}")
+        case ok                                 => Right(ok)
       }
+    } yield finalResp
 
-    } catch {
-      case ex: Exception =>
+    sendEither.fold(
+      err => {
         pendingResponses.remove(command.commandId)
-        throw ex
-    }
+        throw new WorkspaceAgentException(err, "EXECUTION_FAILED", None)
+      },
+      ok => ok
+    )
   }
 
   // WorkspaceAgentInterface implementation
@@ -528,9 +491,11 @@ class ContainerisedWorkspace(val workspaceDir: String) extends WorkspaceAgentInt
     // Register streaming handler
     streamingHandlers.put(cmd.commandId, outputHandler)
 
-    try
-      sendCommand(cmd).asInstanceOf[ExecuteCommandResponse]
-    finally
-      streamingHandlers.remove(cmd.commandId)
+    val resp = Try(sendCommand(cmd).asInstanceOf[ExecuteCommandResponse]).toEither
+    streamingHandlers.remove(cmd.commandId)
+    resp.fold(
+      e => throw e,
+      ok => ok
+    )
   }
 }

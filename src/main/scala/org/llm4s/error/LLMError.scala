@@ -50,7 +50,7 @@ trait LLMError extends Product with Serializable {
 }
 
 object LLMError {
-
+  @deprecated("Use ThrowableOps.RichThrowable#toLLMError with an ErrorMapper", since = "0.1.10")
   def fromThrowable(throwable: Throwable): LLMError = throwable match {
     case _: java.net.SocketTimeoutException =>
       NetworkError("Request timeout", Some(throwable), "unknown")

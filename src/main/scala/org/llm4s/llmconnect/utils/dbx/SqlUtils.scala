@@ -1,5 +1,6 @@
 package org.llm4s.llmconnect.utils.dbx
 
+import org.llm4s.core.safety.UsingOps._
 import java.sql.{ Connection, DriverManager, ResultSet }
 
 object SqlUtils {
@@ -8,18 +9,12 @@ object SqlUtils {
     DriverManager.getConnection(url, user, pass)
   }
 
-  def querySingleOpt[A](conn: Connection, sql: String)(read: ResultSet => A): Option[A] = {
-    val ps = conn.prepareStatement(sql)
-    try {
-      val rs = ps.executeQuery()
-      try if (rs.next()) Some(read(rs)) else None
-      finally rs.close()
-    } finally ps.close()
-  }
+  def querySingleOpt[A](conn: Connection, sql: String)(read: ResultSet => A): Option[A] =
+    using(conn.prepareStatement(sql))(ps => using(ps.executeQuery())(rs => if (rs.next()) Some(read(rs)) else None))
 
-  def exec(conn: Connection, sql: String): Unit = {
-    val ps = conn.prepareStatement(sql)
-    try ps.execute()
-    finally ps.close()
-  }
+  def exec(conn: Connection, sql: String): Unit =
+    using(conn.prepareStatement(sql)) { ps =>
+      ps.execute()
+      ()
+    }
 }

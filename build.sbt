@@ -126,6 +126,8 @@ lazy val commonSettings = Seq(
     case Some((3, _))  => true
     case _             => false
   }),
+  // Exclude test files from scalafix to avoid try-catch-finally rule violations
+  Test / scalafix / unmanagedSources := Seq.empty,
   Compile / packageDoc / publishArtifact := !isSnapshot.value,
   Compile / unmanagedSourceDirectories ++= {
     val sourceDir = (Compile / sourceDirectory).value

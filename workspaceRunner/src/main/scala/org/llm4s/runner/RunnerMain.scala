@@ -26,7 +26,9 @@ object RunnerMain extends cask.MainRoutes {
   implicit private val ec: ExecutionContext = ExecutionContext.fromExecutor(executor)
 
   // Get workspace path from environment variable or use default
-  private val workspacePath = sys.env.getOrElse("WORKSPACE_PATH", "/workspace")
+  // scalafix:off DisableSyntax.NoSystemGetenv
+  private val workspacePath = Option(System.getenv("WORKSPACE_PATH")).getOrElse("/workspace")
+  // scalafix:on DisableSyntax.NoSystemGetenv
 
   // Initialize workspace interface
   private val workspaceInterface = new WorkspaceAgentInterfaceImpl(workspacePath)
@@ -100,135 +102,159 @@ object RunnerMain extends cask.MainRoutes {
     }
 
   private def handleCommand(channel: cask.WsChannelActor, command: WorkspaceAgentCommand): Unit =
-    // Handle commands asynchronously to avoid blocking the WebSocket thread
     Future {
-      try {
-        logger.debug(s"Processing command: ${command.getClass.getSimpleName} with ID: ${command.commandId}")
+      logger.debug(s"Processing command: ${command.getClass.getSimpleName} with ID: ${command.commandId}")
 
-        command match {
-          case cmd: ExploreFilesCommand =>
-            val response = workspaceInterface
-              .exploreFiles(
-                cmd.path,
-                cmd.recursive,
-                cmd.excludePatterns,
-                cmd.maxDepth,
-                cmd.returnMetadata
+      val result: Either[WorkspaceAgentErrorResponse, WorkspaceAgentResponse] = command match {
+        case cmd: ExploreFilesCommand =>
+          scala.util
+            .Try(
+              workspaceInterface
+                .exploreFiles(cmd.path, cmd.recursive, cmd.excludePatterns, cmd.maxDepth, cmd.returnMetadata)
+                .copy(commandId = cmd.commandId)
+            )
+            .toEither
+            .left
+            .map {
+              case e: WorkspaceAgentException =>
+                WorkspaceAgentErrorResponse(cmd.commandId, e.error, e.code, e.details)
+              case e: Exception =>
+                WorkspaceAgentErrorResponse(
+                  cmd.commandId,
+                  e.getMessage,
+                  "EXECUTION_FAILED",
+                  Some(e.getStackTrace.mkString("\n"))
+                )
+            }
+
+        case cmd: ReadFileCommand =>
+          scala.util
+            .Try(
+              workspaceInterface
+                .readFile(cmd.path, cmd.startLine, cmd.endLine)
+                .copy(commandId = cmd.commandId)
+            )
+            .toEither
+            .left
+            .map {
+              case e: WorkspaceAgentException => WorkspaceAgentErrorResponse(cmd.commandId, e.error, e.code, e.details)
+              case e: Exception =>
+                WorkspaceAgentErrorResponse(
+                  cmd.commandId,
+                  e.getMessage,
+                  "EXECUTION_FAILED",
+                  Some(e.getStackTrace.mkString("\n"))
+                )
+            }
+
+        case cmd: WriteFileCommand =>
+          scala.util
+            .Try(
+              workspaceInterface
+                .writeFile(cmd.path, cmd.content, cmd.mode, cmd.createDirectories)
+                .copy(commandId = cmd.commandId)
+            )
+            .toEither
+            .left
+            .map {
+              case e: WorkspaceAgentException => WorkspaceAgentErrorResponse(cmd.commandId, e.error, e.code, e.details)
+              case e: Exception =>
+                WorkspaceAgentErrorResponse(
+                  cmd.commandId,
+                  e.getMessage,
+                  "EXECUTION_FAILED",
+                  Some(e.getStackTrace.mkString("\n"))
+                )
+            }
+
+        case cmd: ModifyFileCommand =>
+          scala.util
+            .Try(
+              workspaceInterface
+                .modifyFile(cmd.path, cmd.operations)
+                .copy(commandId = cmd.commandId)
+            )
+            .toEither
+            .left
+            .map {
+              case e: WorkspaceAgentException => WorkspaceAgentErrorResponse(cmd.commandId, e.error, e.code, e.details)
+              case e: Exception =>
+                WorkspaceAgentErrorResponse(
+                  cmd.commandId,
+                  e.getMessage,
+                  "EXECUTION_FAILED",
+                  Some(e.getStackTrace.mkString("\n"))
+                )
+            }
+
+        case cmd: SearchFilesCommand =>
+          scala.util
+            .Try(
+              workspaceInterface
+                .searchFiles(cmd.paths, cmd.query, cmd.`type`, cmd.recursive, cmd.excludePatterns, cmd.contextLines)
+                .copy(commandId = cmd.commandId)
+            )
+            .toEither
+            .left
+            .map {
+              case e: WorkspaceAgentException => WorkspaceAgentErrorResponse(cmd.commandId, e.error, e.code, e.details)
+              case e: Exception =>
+                WorkspaceAgentErrorResponse(
+                  cmd.commandId,
+                  e.getMessage,
+                  "EXECUTION_FAILED",
+                  Some(e.getStackTrace.mkString("\n"))
+                )
+            }
+
+        case _: ExecuteCommandCommand =>
+          // Streaming path handles its own messaging; return a harmless placeholder
+          Right(GetWorkspaceInfoResponse(command.commandId, workspacePath, Nil, WorkspaceLimits(0, 0, 0, 0)))
+
+        case cmd: GetWorkspaceInfoCommand =>
+          Try(workspaceInterface.getWorkspaceInfo().copy(commandId = cmd.commandId)).toEither.left.map {
+            case e: WorkspaceAgentException => WorkspaceAgentErrorResponse(cmd.commandId, e.error, e.code, e.details)
+            case e: Exception =>
+              WorkspaceAgentErrorResponse(
+                cmd.commandId,
+                e.getMessage,
+                "EXECUTION_FAILED",
+                Some(e.getStackTrace.mkString("\n"))
               )
-              .copy(commandId = cmd.commandId)
-            sendMessage(channel, ResponseMessage(response))
+          }
+      }
 
-          case cmd: ReadFileCommand =>
-            val response = workspaceInterface
-              .readFile(
-                cmd.path,
-                cmd.startLine,
-                cmd.endLine
-              )
-              .copy(commandId = cmd.commandId)
-            sendMessage(channel, ResponseMessage(response))
-
-          case cmd: WriteFileCommand =>
-            val response = workspaceInterface
-              .writeFile(
-                cmd.path,
-                cmd.content,
-                cmd.mode,
-                cmd.createDirectories
-              )
-              .copy(commandId = cmd.commandId)
-            sendMessage(channel, ResponseMessage(response))
-
-          case cmd: ModifyFileCommand =>
-            val response = workspaceInterface
-              .modifyFile(
-                cmd.path,
-                cmd.operations
-              )
-              .copy(commandId = cmd.commandId)
-            sendMessage(channel, ResponseMessage(response))
-
-          case cmd: SearchFilesCommand =>
-            val response = workspaceInterface
-              .searchFiles(
-                cmd.paths,
-                cmd.query,
-                cmd.`type`,
-                cmd.recursive,
-                cmd.excludePatterns,
-                cmd.contextLines
-              )
-              .copy(commandId = cmd.commandId)
-            sendMessage(channel, ResponseMessage(response))
-
-          case cmd: ExecuteCommandCommand =>
-            // For execute command, we'll implement streaming in a separate method
-            handleExecuteCommand(channel, cmd)
-
-          case cmd: GetWorkspaceInfoCommand =>
-            val response = workspaceInterface.getWorkspaceInfo().copy(commandId = cmd.commandId)
-            sendMessage(channel, ResponseMessage(response))
-        }
-
-      } catch {
-        case e: WorkspaceAgentException =>
-          logger.error(s"Workspace agent error processing command ${command.commandId}: ${e.getMessage}", e)
-          val errorResponse = WorkspaceAgentErrorResponse(
-            commandId = command.commandId,
-            error = e.error,
-            code = e.code,
-            details = e.details
+      command match {
+        case cmd: ExecuteCommandCommand =>
+          handleExecuteCommand(channel, cmd)
+        case _ =>
+          result.fold(
+            err => sendMessage(channel, ResponseMessage(err)),
+            ok => sendMessage(channel, ResponseMessage(ok))
           )
-          sendMessage(channel, ResponseMessage(errorResponse))
-
-        case e: Exception =>
-          logger.error(s"Unexpected error processing command ${command.commandId}: ${e.getMessage}", e)
-          val errorResponse = WorkspaceAgentErrorResponse(
-            commandId = command.commandId,
-            error = e.getMessage,
-            code = "EXECUTION_FAILED",
-            details = Some(e.getStackTrace.mkString("\n"))
-          )
-          sendMessage(channel, ResponseMessage(errorResponse))
       }
     }(using ec)
 
   private def handleExecuteCommand(channel: cask.WsChannelActor, cmd: ExecuteCommandCommand): Unit =
     Future {
-      try {
-        // Send command started message
-        sendMessage(channel, CommandStartedMessage(cmd.commandId, cmd.command))
-
-        // Execute command with streaming output
-        val response = executeCommandWithStreaming(cmd)
-
-        // Send final response
-        sendMessage(channel, ResponseMessage(response))
-
-        // Send command completed message
-        sendMessage(channel, CommandCompletedMessage(cmd.commandId, response.exitCode, response.durationMs))
-
-      } catch {
-        case e: WorkspaceAgentException =>
-          logger.error(s"Error executing command ${cmd.commandId}: ${e.getMessage}", e)
-          val errorResponse = WorkspaceAgentErrorResponse(
-            commandId = cmd.commandId,
-            error = e.error,
-            code = e.code,
-            details = e.details
-          )
-          sendMessage(channel, ResponseMessage(errorResponse))
-
+      sendMessage(channel, CommandStartedMessage(cmd.commandId, cmd.command))
+      val res = Try(executeCommandWithStreaming(cmd)).toEither.left.map {
+        case e: WorkspaceAgentException => WorkspaceAgentErrorResponse(cmd.commandId, e.error, e.code, e.details)
         case e: Exception =>
-          logger.error(s"Unexpected error executing command ${cmd.commandId}: ${e.getMessage}", e)
-          val errorResponse = WorkspaceAgentErrorResponse(
-            commandId = cmd.commandId,
-            error = e.getMessage,
-            code = "EXECUTION_FAILED",
-            details = Some(e.getStackTrace.mkString("\n"))
+          WorkspaceAgentErrorResponse(
+            cmd.commandId,
+            e.getMessage,
+            "EXECUTION_FAILED",
+            Some(e.getStackTrace.mkString("\n"))
           )
-          sendMessage(channel, ResponseMessage(errorResponse))
       }
+      res.fold(
+        err => sendMessage(channel, ResponseMessage(err)),
+        ok => {
+          sendMessage(channel, ResponseMessage(ok))
+          sendMessage(channel, CommandCompletedMessage(cmd.commandId, ok.exitCode, ok.durationMs))
+        }
+      )
     }(using ec)
 
   private def executeCommandWithStreaming(cmd: ExecuteCommandCommand): ExecuteCommandResponse =
@@ -242,15 +268,13 @@ object RunnerMain extends cask.MainRoutes {
       )
       .copy(commandId = cmd.commandId)
 
-  private def sendMessage(channel: cask.WsChannelActor, message: WebSocketMessage): Unit =
-    try {
-      val json = write(message)
-      channel.send(cask.Ws.Text(json))
-      logger.debug(s"Sent WebSocket message: ${message.getClass.getSimpleName}")
-    } catch {
-      case ex: Exception =>
-        logger.error(s"Failed to send WebSocket message: ${ex.getMessage}", ex)
-    }
+  private def sendMessage(channel: cask.WsChannelActor, message: WebSocketMessage): Unit = {
+    val attempt = Try(write(message)).toEither
+    for {
+      json <- attempt.left.map(ex => logger.error(s"Failed to serialize WebSocket message: ${ex.getMessage}", ex))
+    } yield channel.send(cask.Ws.Text(json))
+    logger.debug(s"Sent WebSocket message: ${message.getClass.getSimpleName}")
+  }
 
   private def sendError(
     channel: cask.WsChannelActor,
@@ -273,13 +297,10 @@ object RunnerMain extends cask.MainRoutes {
 
           if (currentTime - lastHeartbeat > HeartbeatTimeoutMs) {
             logger.warn(s"WebSocket connection timed out - no heartbeat for ${currentTime - lastHeartbeat}ms")
-            try {
-              channel.send(cask.Ws.Close(1000, "Heartbeat timeout"))
-              connections.remove(channel)
-            } catch {
-              case ex: Exception =>
-                logger.error(s"Error closing timed out connection: ${ex.getMessage}", ex)
+            Try(channel.send(cask.Ws.Close(1000, "Heartbeat timeout"))).failed.foreach { ex =>
+              logger.error(s"Error closing timed out connection: ${ex.getMessage}", ex)
             }
+            connections.remove(channel)
           }
         }
       },
@@ -318,7 +339,7 @@ object RunnerMain extends cask.MainRoutes {
       shutdown()
     }))
 
-    logger.info(s"WebSocket Runner service starting on ${host}:${port}")
+    logger.info(s"WebSocket Runner service starting on $host:$port")
     super.main(args)
   }
 
@@ -328,22 +349,14 @@ object RunnerMain extends cask.MainRoutes {
   def shutdown(): Unit = {
     logger.info("Shutting down WebSocket Runner service")
 
-    try {
+    Try {
       heartbeatExecutor.shutdown()
-      if (!heartbeatExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
-        heartbeatExecutor.shutdownNow()
-      }
-    } catch {
-      case _: InterruptedException => heartbeatExecutor.shutdownNow()
-    }
+      if (!heartbeatExecutor.awaitTermination(5, TimeUnit.SECONDS)) heartbeatExecutor.shutdownNow()
+    }.recover { case _: InterruptedException => heartbeatExecutor.shutdownNow() }
 
-    try {
+    Try {
       executor.shutdown()
-      if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
-        executor.shutdownNow()
-      }
-    } catch {
-      case _: InterruptedException => executor.shutdownNow()
-    }
+      if (!executor.awaitTermination(5, TimeUnit.SECONDS)) executor.shutdownNow()
+    }.recover { case _: InterruptedException => executor.shutdownNow() }
   }
 }

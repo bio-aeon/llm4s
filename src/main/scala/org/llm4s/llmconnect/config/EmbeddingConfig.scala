@@ -2,6 +2,7 @@ package org.llm4s.llmconnect.config
 
 import org.llm4s.config.{ ConfigKeys, ConfigReader }
 import ConfigKeys._
+import scala.util.Try
 
 case class EmbeddingProviderConfig(
   baseUrl: String,
@@ -75,15 +76,15 @@ object EmbeddingConfig {
 
   /** Validates that required embedding configuration is present for the active provider. */
   def validateConfig(config: ConfigReader): Either[String, String] =
-    try {
+    Try {
       val provider = activeProvider(config)
       val providerConfig = provider.toLowerCase match {
         case "openai" => openAI(config)
         case "voyage" => voyage(config)
-        case other    => return Left(s"Unknown embedding provider: $other")
+        case other    => throw new RuntimeException(s"Unknown embedding provider: $other")
       }
-      validateProviderConfig(providerConfig).map(_ => provider)
-    } catch {
-      case e: RuntimeException => Left(e.getMessage)
-    }
+      provider -> providerConfig
+    }.toEither.left
+      .map(_.getMessage)
+      .flatMap { case (provider, cfg) => validateProviderConfig(cfg).map(_ => provider) }
 }

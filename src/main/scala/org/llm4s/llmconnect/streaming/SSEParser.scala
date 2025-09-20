@@ -52,8 +52,10 @@ object SSEParser {
 
           field match {
             case "data" =>
-              // Accumulate data fields (can be multiple)
-              event = event.copy(data = Some(event.data.getOrElse("") + value))
+              // Accumulate data fields (SSE joins multiple data lines with newlines)
+              val prev   = event.data.getOrElse("")
+              val joined = if (prev.isEmpty) value else prev + "\n" + value
+              event = event.copy(data = Some(joined))
             case "event" =>
               event = event.copy(event = Some(value))
             case "id" =>

@@ -11,7 +11,7 @@ import java.util.regex.Pattern
 import scala.io.Source
 import scala.jdk.CollectionConverters._
 import scala.sys.process._
-import scala.util.{ Failure, Success, Using }
+import scala.util.{ Failure, Success, Try, Using }
 
 /**
  * Implementation of WorkspaceAgentInterface that operates on a local filesystem workspace.
@@ -90,7 +90,7 @@ class WorkspaceAgentInterfaceImpl(workspaceRoot: String) extends WorkspaceAgentI
     excludePatterns.exists { pattern =>
       val regex = pattern
         .replace(".", "\\.")
-        .replace("**", ".+")
+        .replace("**", ".*") // allow zero or more segments
         .replace("*", "[^/]+")
 
       path.matches(regex)
@@ -128,14 +128,9 @@ class WorkspaceAgentInterfaceImpl(workspaceRoot: String) extends WorkspaceAgentI
       )
     }
 
-    val stream = if (isRecursive) {
-      Files.walk(resolvedPath, depth)
-    } else {
-      Files.list(resolvedPath)
-    }
-
-    try {
-      val allFiles = stream.iterator().asScala.toList
+    val stream = if (isRecursive) Files.walk(resolvedPath, depth) else Files.list(resolvedPath)
+    Using(stream) { s =>
+      val allFiles = s.iterator().asScala.toList
 
       val filteredFiles = allFiles
         .filterNot { p =>
@@ -162,7 +157,7 @@ class WorkspaceAgentInterfaceImpl(workspaceRoot: String) extends WorkspaceAgentI
         isTruncated = isTruncated,
         totalFound = filteredFiles.size
       )
-    } finally stream.close()
+    }.get
   }
 
   /**
@@ -279,7 +274,7 @@ class WorkspaceAgentInterfaceImpl(workspaceRoot: String) extends WorkspaceAgentI
         )
     }
 
-    try {
+    Try {
       val bytes = content.getBytes(StandardCharsets.UTF_8)
       Files.write(resolvedPath, bytes, options: _*)
 
@@ -289,14 +284,13 @@ class WorkspaceAgentInterfaceImpl(workspaceRoot: String) extends WorkspaceAgentI
         path = path,
         bytesWritten = bytes.length
       )
-    } catch {
-      case e: Exception =>
-        throw new WorkspaceAgentException(
-          s"Failed to write to file '$path': ${e.getMessage}",
-          "WRITE_ERROR",
-          None
-        )
-    }
+    }.recover { case e: Exception =>
+      throw new WorkspaceAgentException(
+        s"Failed to write to file '$path': ${e.getMessage}",
+        "WRITE_ERROR",
+        None
+      )
+    }.get
   }
 
   /**
@@ -460,10 +454,9 @@ class WorkspaceAgentInterfaceImpl(workspaceRoot: String) extends WorkspaceAgentI
     val pattern = if (searchType == "literal") {
       Pattern.compile(Pattern.quote(query))
     } else {
-      try
-        Pattern.compile(query)
-      catch {
-        case e: Exception =>
+      Try(Pattern.compile(query)) match {
+        case Success(p) => p
+        case Failure(e) =>
           throw new WorkspaceAgentException(
             s"Invalid regex pattern: ${e.getMessage}",
             "INVALID_ARGUMENT",
@@ -486,9 +479,8 @@ class WorkspaceAgentInterfaceImpl(workspaceRoot: String) extends WorkspaceAgentI
 
       if (Files.isDirectory(resolvedPath)) {
         val stream = if (isRecursive) Files.walk(resolvedPath) else Files.list(resolvedPath)
-        try
-          stream
-            .iterator()
+        Using.resource(stream) { s =>
+          s.iterator()
             .asScala
             .filter(p => Files.isRegularFile(p))
             .filterNot { p =>
@@ -496,8 +488,7 @@ class WorkspaceAgentInterfaceImpl(workspaceRoot: String) extends WorkspaceAgentI
               isExcluded(relativePath, patterns)
             }
             .toList
-        finally
-          stream.close()
+        }
       } else {
         List(resolvedPath)
       }
@@ -510,9 +501,7 @@ class WorkspaceAgentInterfaceImpl(workspaceRoot: String) extends WorkspaceAgentI
     for (file <- filesToSearch if matches.size < defaultLimits.maxSearchResults) {
       val relativePath = rootPath.relativize(file).toString
 
-      try {
-        val lines = Files.readAllLines(file, StandardCharsets.UTF_8).asScala.toList
-
+      Try(Files.readAllLines(file, StandardCharsets.UTF_8).asScala.toList).toOption.foreach { lines =>
         for ((line, lineIndex) <- lines.zipWithIndex if matches.size < defaultLimits.maxSearchResults) {
           val matcher = pattern.matcher(line)
 
@@ -532,9 +521,6 @@ class WorkspaceAgentInterfaceImpl(workspaceRoot: String) extends WorkspaceAgentI
             )
           }
         }
-      } catch {
-        case _: Exception =>
-        // Skip files that can't be read or aren't text
       }
     }
 
@@ -585,44 +571,43 @@ class WorkspaceAgentInterfaceImpl(workspaceRoot: String) extends WorkspaceAgentI
     val stderr    = new StringBuilder
     val startTime = System.currentTimeMillis()
 
-    val exitCode =
-      try {
-        val process = processBuilder.run(
-          ProcessLogger(
-            line =>
-              if (stdout.length < defaultLimits.maxOutputSize) {
-                stdout.append(line).append("\n")
-              },
-            line =>
-              if (stderr.length < defaultLimits.maxOutputSize) {
-                stderr.append(line).append("\n")
-              }
-          )
+    val exitCode = Try {
+      val process = processBuilder.run(
+        ProcessLogger(
+          line =>
+            if (stdout.length < defaultLimits.maxOutputSize) {
+              stdout.append(line).append("\n")
+            },
+          line =>
+            if (stderr.length < defaultLimits.maxOutputSize) {
+              stderr.append(line).append("\n")
+            }
         )
+      )
 
-        while (process.isAlive() && System.currentTimeMillis() - startTime < timeoutMs)
-          Thread.sleep(100)
+      while (process.isAlive() && System.currentTimeMillis() - startTime < timeoutMs)
+        Thread.sleep(100)
 
-        val completed = !process.isAlive()
+      val completed = !process.isAlive()
 
-        if (!completed) {
-          process.destroy()
-          throw new WorkspaceAgentException(
-            s"Command execution timed out after ${timeoutMs}ms",
-            "TIMEOUT",
-            None
-          )
-        }
-
-        process.exitValue()
-      } catch {
-        case e: Exception if !e.isInstanceOf[WorkspaceAgentException] =>
-          throw new WorkspaceAgentException(
-            s"Failed to execute command: ${e.getMessage}",
-            "EXECUTION_FAILED",
-            None
-          )
+      if (!completed) {
+        process.destroy()
+        throw new WorkspaceAgentException(
+          s"Command execution timed out after ${timeoutMs}ms",
+          "TIMEOUT",
+          None
+        )
       }
+
+      process.exitValue()
+    }.recover {
+      case e: Exception if !e.isInstanceOf[WorkspaceAgentException] =>
+        throw new WorkspaceAgentException(
+          s"Failed to execute command: ${e.getMessage}",
+          "EXECUTION_FAILED",
+          None
+        )
+    }.get
 
     val duration          = System.currentTimeMillis() - startTime
     val isStdoutTruncated = stdout.length >= defaultLimits.maxOutputSize
