@@ -43,19 +43,6 @@ class PlanRunnerSpec extends AnyFlatSpec with Matchers with ScalaFutures {
 
     val initialInputs = Map("processor" -> InputData("hello world"))
 
-<<<<<<< HEAD
-    val result = runner.execute(plan, initialInputs).unsafeRunSync()
-
-    result.isRight shouldBe true
-    val outputs = result.getOrElse(Map.empty)
-
-    (outputs should contain).key("processor")
-    (outputs should contain).key("summarizer")
-
-    val finalOutput = outputs("summarizer").asInstanceOf[FinalOutput]
-    finalOutput.summary should include("processed: hello world")
-    finalOutput.success shouldBe true
-=======
     whenReady(runner.execute(plan, initialInputs)) { result =>
       result.isRight shouldBe true
       val outputs = result.getOrElse(Map.empty)
@@ -67,7 +54,6 @@ class PlanRunnerSpec extends AnyFlatSpec with Matchers with ScalaFutures {
       finalOutput.summary should include("processed: hello world")
       finalOutput.success shouldBe true
     }
->>>>>>> f05d9ad (addressed the comments)
   }
 
   "PlanRunner" should "handle parallel execution" in {
@@ -93,24 +79,6 @@ class PlanRunnerSpec extends AnyFlatSpec with Matchers with ScalaFutures {
       "proc2" -> InputData("data2")
     )
 
-<<<<<<< HEAD
-    val startTime = System.currentTimeMillis()
-    val result    = runner.execute(plan, initialInputs).unsafeRunSync()
-    val endTime   = System.currentTimeMillis()
-
-    result.isRight shouldBe true
-    val outputs = result.getOrElse(Map.empty)
-
-    outputs should have size 2
-    (outputs should contain).key("proc1")
-    (outputs should contain).key("proc2")
-
-    val output1 = outputs("proc1").asInstanceOf[ProcessedData]
-    val output2 = outputs("proc2").asInstanceOf[ProcessedData]
-
-    output1.result should include("path1: data1")
-    output2.result should include("path2: data2")
-=======
     whenReady(runner.execute(plan, initialInputs)) { result =>
       result.isRight shouldBe true
       val outputs = result.getOrElse(Map.empty)
@@ -125,7 +93,6 @@ class PlanRunnerSpec extends AnyFlatSpec with Matchers with ScalaFutures {
       output1.result should include("path1: data1")
       output2.result should include("path2: data2")
     }
->>>>>>> f05d9ad (addressed the comments)
   }
 
   "PlanRunner" should "handle plan validation errors" in {
@@ -142,19 +109,12 @@ class PlanRunnerSpec extends AnyFlatSpec with Matchers with ScalaFutures {
 
     val initialInputs = Map("a" -> InputData("test"))
 
-<<<<<<< HEAD
-    val result = runner.execute(invalidPlan, initialInputs).unsafeRunSync()
-
-    result.isLeft shouldBe true
-    result.left.get shouldBe a[OrchestrationError.PlanValidationError]
-=======
     whenReady(runner.execute(invalidPlan, initialInputs)) { result =>
       result.isLeft shouldBe true
       result.swap
         .getOrElse(throw new RuntimeException("Expected Left"))
         .shouldBe(a[OrchestrationError.PlanValidationError])
     }
->>>>>>> f05d9ad (addressed the comments)
   }
 
   "PlanRunner" should "handle node execution failures" in {
@@ -169,19 +129,11 @@ class PlanRunnerSpec extends AnyFlatSpec with Matchers with ScalaFutures {
 
     val initialInputs = Map("failing" -> InputData("test"))
 
-<<<<<<< HEAD
-    val result = runner.execute(plan, initialInputs).unsafeRunSync()
-
-    result.isLeft shouldBe true
-    val error = result.left.get
-    error shouldBe a[OrchestrationError.NodeExecutionError]
-=======
     whenReady(runner.execute(plan, initialInputs)) { result =>
       result.isLeft shouldBe true
       val error = result.swap.getOrElse(throw new RuntimeException("Expected Left"))
       error shouldBe a[OrchestrationError.NodeExecutionError]
     }
->>>>>>> f05d9ad (addressed the comments)
   }
 
   "PlanRunner" should "handle missing inputs gracefully" in {
@@ -194,19 +146,12 @@ class PlanRunnerSpec extends AnyFlatSpec with Matchers with ScalaFutures {
     // Missing required input
     val initialInputs = Map.empty[String, Any]
 
-<<<<<<< HEAD
-    val result = runner.execute(plan, initialInputs).unsafeRunSync()
-
-    result.isLeft shouldBe true
-    result.left.get shouldBe a[OrchestrationError.NodeExecutionError]
-=======
     whenReady(runner.execute(plan, initialInputs)) { result =>
       result.isLeft shouldBe true
       result.swap
         .getOrElse(throw new RuntimeException("Expected Left"))
         .shouldBe(a[OrchestrationError.NodeExecutionError])
     }
->>>>>>> f05d9ad (addressed the comments)
   }
 
   "PlanRunner" should "execute diamond-shaped DAG correctly" in {
@@ -234,19 +179,6 @@ class PlanRunnerSpec extends AnyFlatSpec with Matchers with ScalaFutures {
 
     val initialInputs = Map("source" -> InputData("test"))
 
-<<<<<<< HEAD
-    val result = runner.execute(plan, initialInputs).unsafeRunSync()
-
-    result.isRight shouldBe true
-    val outputs = result.getOrElse(Map.empty)
-
-    (outputs should contain).key("source")
-    (outputs should contain).key("pathB")
-    (outputs should contain).key("pathC")
-    (outputs should contain).key("merger")
-
-    outputs("merger").asInstanceOf[String] should include("merged:B:test")
-=======
     whenReady(runner.execute(plan, initialInputs)) { result =>
       result.isRight shouldBe true
       val outputs = result.getOrElse(Map.empty)
@@ -258,7 +190,6 @@ class PlanRunnerSpec extends AnyFlatSpec with Matchers with ScalaFutures {
 
       outputs("merger").asInstanceOf[String] should include("merged:B:test")
     }
->>>>>>> f05d9ad (addressed the comments)
   }
 
   "PlanRunner" should "handle slow agents gracefully" in {
@@ -274,13 +205,8 @@ class PlanRunnerSpec extends AnyFlatSpec with Matchers with ScalaFutures {
     val initialInputs = Map("slow" -> InputData("test"))
 
     val startTime = System.currentTimeMillis()
-<<<<<<< HEAD
-    val result    = runner.execute(plan, initialInputs).unsafeRunSync()
-    val endTime   = System.currentTimeMillis()
-=======
     whenReady(runner.execute(plan, initialInputs)) { result =>
       val endTime = System.currentTimeMillis()
->>>>>>> f05d9ad (addressed the comments)
 
       result.isRight shouldBe true
       (endTime - startTime) should be >= 100L // Should take at least 100ms

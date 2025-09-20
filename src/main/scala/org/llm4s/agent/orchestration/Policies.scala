@@ -2,9 +2,10 @@ package org.llm4s.agent.orchestration
 
 import org.llm4s.types.{ AsyncResult, AgentId }
 import org.slf4j.{ LoggerFactory, MDC }
-import scala.concurrent.{ Future, ExecutionContext }
+import scala.concurrent.{ Future, ExecutionContext, Promise }
 import scala.concurrent.duration._
-import scala.util.Success
+import scala.util.{ Success, Try }
+import java.util.concurrent.{ Executors, ScheduledExecutorService, TimeUnit }
 
 /**
  * Execution policies for agents (retry, timeout, fallback) following LLM4S patterns.
@@ -18,6 +19,49 @@ import scala.util.Success
  */
 object Policies {
   private val logger = LoggerFactory.getLogger(getClass)
+
+  // Shared scheduler for delays - using a small pool to avoid thread exhaustion
+  private lazy val scheduler: ScheduledExecutorService = {
+    val executor = Executors.newScheduledThreadPool(
+      2,
+      (r: Runnable) => {
+        val t = new Thread(r, "orchestration-scheduler")
+        t.setDaemon(true)
+        t
+      }
+    )
+
+    // Register shutdown hook to clean up executor
+    sys.addShutdownHook {
+      executor.shutdown()
+      try
+        if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
+          executor.shutdownNow()
+        }
+      catch {
+        case _: InterruptedException =>
+          executor.shutdownNow()
+          Thread.currentThread().interrupt()
+      }
+    }
+
+    executor
+  }
+
+  /**
+   * Create a Future that completes after the specified delay without blocking threads
+   */
+  private def delayedFuture[T](delay: FiniteDuration)(value: => T): Future[T] = {
+    val promise = Promise[T]()
+    scheduler.schedule(
+      new Runnable {
+        def run(): Unit = promise.complete(Try(value))
+      },
+      delay.toMillis,
+      TimeUnit.MILLISECONDS
+    )
+    promise.future
+  }
 
   /**
    * Add retry policy to an agent using LLM4S ErrorRecovery patterns
@@ -59,17 +103,9 @@ object Policies {
                     orchError.formatted
                   )
 
-                  // Sleep and retry using proper async delay
-                  val delay = backoff.toMillis * attemptNumber
-                  val delayFuture = Future {
-                    // Use a simple delay mechanism that doesn't block threads
-                    val start = System.currentTimeMillis()
-                    while (System.currentTimeMillis() - start < delay)
-                      // Busy wait - in production, use a proper scheduler
-                      Thread.`yield`()
-                  }(ExecutionContext.global)
-
-                  delayFuture.flatMap(_ => attempt(attemptsLeft - 1, attemptNumber + 1))
+                  // Exponential backoff with proper async delay
+                  val delay = backoff * attemptNumber
+                  delayedFuture(delay)(()).flatMap(_ => attempt(attemptsLeft - 1, attemptNumber + 1))
 
                 case _ =>
                   logger.error(
@@ -115,17 +151,28 @@ object Policies {
         MDC.put("policy", "timeout")
         MDC.put("timeoutMs", timeout.toMillis.toString)
 
-        // Proper timeout using Future.firstCompletedOf
-        val timeoutFuture = Future {
-          val start = System.currentTimeMillis()
-          while (System.currentTimeMillis() - start < timeout.toMillis)
-            Thread.`yield`()
-          Left(OrchestrationError.AgentTimeoutError(agent.name, timeout.toMillis))
-        }(ExecutionContext.global)
+        // Proper timeout using scheduled executor
+        val timeoutPromise = Promise[AsyncResult[O]]()
+        val timeoutTask = scheduler.schedule(
+          new Runnable {
+            def run(): Unit =
+              timeoutPromise.trySuccess(
+                Future.successful(Left(OrchestrationError.AgentTimeoutError(agent.name, timeout.toMillis)))
+              )
+          },
+          timeout.toMillis,
+          TimeUnit.MILLISECONDS
+        )
 
         val agentFuture = agent.execute(input)
 
-        val resultFuture = Future.firstCompletedOf(List(agentFuture, timeoutFuture))
+        // Cancel timeout if agent completes first
+        agentFuture.onComplete { _ =>
+          timeoutTask.cancel(false)
+          timeoutPromise.trySuccess(agentFuture)
+        }
+
+        val resultFuture = timeoutPromise.future.flatten
 
         resultFuture
           .andThen {

@@ -1,4 +1,4 @@
-// OrchestrationSamples moved from samples module
+package org.llm4s.samples.orchestration
 
 import org.llm4s.agent.orchestration._
 import scala.concurrent.{ Future, ExecutionContext, Await }

@@ -84,19 +84,9 @@ class IntegrationSpec extends AnyFlatSpec with Matchers with ScalaFutures {
       (outputs should contain).key("summarize")
       (outputs should contain).key("aggregate")
 
-<<<<<<< HEAD
-    (outputs should contain).key("preprocess")
-    (outputs should contain).key("analyze")
-    (outputs should contain).key("summarize")
-    (outputs should contain).key("aggregate")
-
-    val finalResult = outputs("aggregate").asInstanceOf[WorkflowResult]
-    finalResult.summary should include("positive sentiment")
-=======
       val finalResult = outputs("aggregate").asInstanceOf[WorkflowResult]
       finalResult.summary should include("positive sentiment")
     }
->>>>>>> f05d9ad (addressed the comments)
   }
 
   "Error recovery in complex workflow" should "handle partial failures gracefully" in {
@@ -170,13 +160,8 @@ class IntegrationSpec extends AnyFlatSpec with Matchers with ScalaFutures {
     val runner = PlanRunner()
 
     val startTime = System.currentTimeMillis()
-<<<<<<< HEAD
-    val result    = runner.execute(plan, initialInputs).unsafeRunSync()
-    val endTime   = System.currentTimeMillis()
-=======
     whenReady(runner.execute(plan, initialInputs)) { result =>
       val endTime = System.currentTimeMillis()
->>>>>>> f05d9ad (addressed the comments)
 
       val executionTime = endTime - startTime
 

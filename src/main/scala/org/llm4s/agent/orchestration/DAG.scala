@@ -62,39 +62,6 @@ case class Plan(
    */
   def topologicalOrder: Either[String, List[Node[_, _]]] =
     validate.flatMap { _ =>
-<<<<<<< HEAD
-      val inDegree = scala.collection.mutable.Map[String, Int]()
-      val adjList  = scala.collection.mutable.Map[String, List[String]]()
-
-      // Initialize
-      nodes.keys.foreach { nodeId =>
-        inDegree(nodeId) = 0
-        adjList(nodeId) = List.empty
-      }
-
-      // Build adjacency list and in-degree count
-      edges.foreach { edge =>
-        adjList(edge.source.id) = edge.target.id :: adjList(edge.source.id)
-        inDegree(edge.target.id) = inDegree(edge.target.id) + 1
-      }
-
-      // Kahn's algorithm
-      val queue  = scala.collection.mutable.Queue[String]()
-      val result = scala.collection.mutable.ListBuffer[Node[_, _]]()
-
-      // Add nodes with no incoming edges
-      inDegree.filter(_._2 == 0).keys.foreach(queue.enqueue(_))
-
-      while (queue.nonEmpty) {
-        val nodeId = queue.dequeue()
-        result += nodes(nodeId)
-
-        // Remove edges and update in-degrees
-        adjList(nodeId).foreach { neighbor =>
-          inDegree(neighbor) = inDegree(neighbor) - 1
-          if (inDegree(neighbor) == 0) {
-            queue.enqueue(neighbor)
-=======
       // Build adjacency list and in-degree count using immutable collections
       val initialInDegree = nodes.keys.map(_ -> 0).toMap
       val initialAdjList  = nodes.keys.map(_ -> List.empty[String]).toMap
@@ -125,29 +92,14 @@ case class Plan(
               val newInDeg = inDeg.updated(neighbor, inDeg(neighbor) - 1)
               val newQ     = if (newInDeg(neighbor) == 0) q :+ neighbor else q
               (newInDeg, newQ)
->>>>>>> f05d9ad (addressed the comments)
           }
 
           kahnAlgorithm(updatedInDegree, currentAdjList, newQueue, newResult)
         }
-<<<<<<< HEAD
-      }
-<<<<<<< HEAD
-
-=======
-      
-      // Start with nodes that have no incoming edges
-      val initialQueue = inDegree.filter(_._2 == 0).keys.toList
-      val result = kahnAlgorithm(inDegree, adjList, initialQueue, List.empty)
-      
->>>>>>> f05d9ad (addressed the comments)
-=======
 
       // Start with nodes that have no incoming edges
       val initialQueue = inDegree.filter(_._2 == 0).keys.toList
       val result       = kahnAlgorithm(inDegree, adjList, initialQueue, List.empty)
-
->>>>>>> a4abc8e (formatted)
       if (result.size != nodes.size) {
         Left("Topological sort failed - graph contains cycles")
       } else {
@@ -163,43 +115,7 @@ case class Plan(
     // Build dependency maps
     val incomingEdges = edges.groupBy(_.target.id).withDefaultValue(List.empty)
     val outgoingEdges = edges.groupBy(_.source.id).withDefaultValue(List.empty)
-<<<<<<< HEAD
-<<<<<<< HEAD
 
-    // Calculate dependency levels using BFS
-    val levels = scala.collection.mutable.Map[String, Int]()
-    val queue  = scala.collection.mutable.Queue[String]()
-
-    // Start with nodes that have no dependencies (level 0)
-    val entryNodes = nodes.keys.filter(nodeId => incomingEdges(nodeId).isEmpty)
-    entryNodes.foreach { nodeId =>
-      levels(nodeId) = 0
-      queue.enqueue(nodeId)
-    }
-
-    // Process nodes level by level
-    while (queue.nonEmpty) {
-      val currentNodeId = queue.dequeue()
-
-      // Update levels of dependent nodes
-      outgoingEdges(currentNodeId).foreach { edge =>
-        val targetId           = edge.target.id
-        val targetDependencies = incomingEdges(targetId).map(_.source.id)
-
-        // Check if all dependencies of target node have been processed
-        if (targetDependencies.forall(levels.contains)) {
-          val maxDependencyLevel = targetDependencies.map(levels).max
-          val targetLevel        = maxDependencyLevel + 1
-
-          if (!levels.contains(targetId)) {
-            levels(targetId) = targetLevel
-            queue.enqueue(targetId)
-          }
-=======
-    
-=======
-
->>>>>>> a4abc8e (formatted)
     // Calculate dependency levels using BFS with immutable collections
     def calculateLevels(
       currentLevels: Map[String, Int],
@@ -232,31 +148,15 @@ case class Plan(
             } else {
               (levels, queue)
             }
->>>>>>> f05d9ad (addressed the comments)
         }
 
         calculateLevels(updatedLevels, newQueue)
       }
-<<<<<<< HEAD
-    }
-<<<<<<< HEAD
 
-=======
-    
-=======
-
->>>>>>> a4abc8e (formatted)
     // Start with nodes that have no dependencies (level 0)
     val entryNodes    = nodes.keys.filter(nodeId => incomingEdges(nodeId).isEmpty).toList
     val initialLevels = entryNodes.map(_ -> 0).toMap
-<<<<<<< HEAD
-    val levels = calculateLevels(initialLevels, entryNodes)
-    
->>>>>>> f05d9ad (addressed the comments)
-=======
     val levels        = calculateLevels(initialLevels, entryNodes)
-
->>>>>>> a4abc8e (formatted)
     // Verify all nodes have been assigned levels
     if (levels.size != nodes.size) {
       Left("Failed to assign dependency levels - graph may contain cycles")

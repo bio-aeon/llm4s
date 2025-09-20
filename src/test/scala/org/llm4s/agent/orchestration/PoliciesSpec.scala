@@ -36,94 +36,29 @@ class PoliciesSpec extends AnyFlatSpec with Matchers with ScalaFutures {
   "Policies.withRetry" should "retry recoverable failures" in {
     attemptCounter = 0 // Reset counter
     val retryAgent = Policies.withRetry(flakyAgent, maxAttempts = 3, backoff = 10.millis)
-<<<<<<< HEAD
-<<<<<<< HEAD
 
-    val result = retryAgent.execute("test").unsafeRunSync()
-
-    result.isRight shouldBe true
-    result.getOrElse("") should include("success after retries")
-    attemptCounter shouldBe 3
-=======
-    
-=======
-
->>>>>>> a2539cb (test 1)
     whenReady(retryAgent.execute("test")) { result =>
       result.isRight shouldBe true
       result.getOrElse("") should include("success after retries")
       attemptCounter shouldBe 3
     }
->>>>>>> f05d9ad (addressed the comments)
   }
 
   "Policies.withRetry" should "not retry non-recoverable failures" in {
     val retryAgent = Policies.withRetry(nonRecoverableFailureAgent, maxAttempts = 3)
-<<<<<<< HEAD
-<<<<<<< HEAD
 
-    val result = retryAgent.execute("test").unsafeRunSync()
-
-    result.isLeft shouldBe true
-    result.left.get shouldBe a[OrchestrationError.PlanValidationError]
-=======
-    
-=======
-
->>>>>>> a2539cb (test 1)
     whenReady(retryAgent.execute("test")) { result =>
       result.isLeft shouldBe true
       result.swap
         .getOrElse(throw new RuntimeException("Expected Left"))
         .shouldBe(a[OrchestrationError.PlanValidationError])
     }
->>>>>>> f05d9ad (addressed the comments)
   }
 
   "Policies.withRetry" should "succeed immediately if first attempt succeeds" in {
     val retryAgent = Policies.withRetry(successAgent, maxAttempts = 3)
-<<<<<<< HEAD
-<<<<<<< HEAD
-
-    val result = retryAgent.execute("test").unsafeRunSync()
-
-    result shouldBe Right("success: test")
-  }
-
-  "Policies.withTimeout" should "timeout slow operations" in {
-    val slowAgent = Agent.fromIO[String, String]("slow")(s => IO.sleep(500.millis) *> IO.pure(Right(s"slow: $s")))
-
-    TestControl
-      .executeEmbed {
-        val timeoutAgent = Policies.withTimeout(slowAgent, 100.millis)
-
-        timeoutAgent.execute("test").map { result =>
-          result.isLeft shouldBe true
-          result.left.get shouldBe a[OrchestrationError.AgentTimeoutError]
-        }
-      }
-      .unsafeRunSync()
-  }
-
-  "Policies.withTimeout" should "succeed for fast operations" in {
-    val fastAgent = Agent.fromIO[String, String]("fast")(s => IO.sleep(10.millis) *> IO.pure(Right(s"fast: $s")))
-
-    TestControl
-      .executeEmbed {
-        val timeoutAgent = Policies.withTimeout(fastAgent, 100.millis)
-
-        timeoutAgent.execute("test").map(result => result shouldBe Right("fast: test"))
-      }
-      .unsafeRunSync()
-=======
-    
-    whenReady(retryAgent.execute("test")) { result =>
-      result shouldBe Right("success: test")
-    }
-=======
 
     whenReady(retryAgent.execute("test"))(result => result shouldBe Right("success: test"))
->>>>>>> a2539cb (test 1)
   }
 
   "Policies.withTimeout" should "timeout slow operations" in {
@@ -153,16 +88,8 @@ class PoliciesSpec extends AnyFlatSpec with Matchers with ScalaFutures {
     }
 
     val timeoutAgent = Policies.withTimeout(fastAgent, 100.millis)
-<<<<<<< HEAD
-    
-    whenReady(timeoutAgent.execute("test")) { result =>
-      result shouldBe Right("fast: test")
-    }
->>>>>>> f05d9ad (addressed the comments)
-=======
 
     whenReady(timeoutAgent.execute("test"))(result => result shouldBe Right("fast: test"))
->>>>>>> a2539cb (test 1)
   }
 
   "Policies.withFallback" should "use fallback when primary fails" in {
@@ -170,22 +97,8 @@ class PoliciesSpec extends AnyFlatSpec with Matchers with ScalaFutures {
     val fallbackAgent = Agent.fromFunction[String, String]("fallback")(s => Right(s"fallback: $s"))
 
     val fallbackWrapped = Policies.withFallback(primaryAgent, fallbackAgent)
-<<<<<<< HEAD
-<<<<<<< HEAD
-
-    val result = fallbackWrapped.execute("test").unsafeRunSync()
-
-    result shouldBe Right("fallback: test")
-=======
-    
-    whenReady(fallbackWrapped.execute("test")) { result =>
-      result shouldBe Right("fallback: test")
-    }
->>>>>>> f05d9ad (addressed the comments)
-=======
 
     whenReady(fallbackWrapped.execute("test"))(result => result shouldBe Right("fallback: test"))
->>>>>>> a2539cb (test 1)
   }
 
   "Policies.withFallback" should "use primary when it succeeds" in {
@@ -193,22 +106,8 @@ class PoliciesSpec extends AnyFlatSpec with Matchers with ScalaFutures {
     val fallbackAgent = Agent.fromFunction[String, String]("fallback")(s => Right(s"fallback: $s"))
 
     val fallbackWrapped = Policies.withFallback(primaryAgent, fallbackAgent)
-<<<<<<< HEAD
-<<<<<<< HEAD
-
-    val result = fallbackWrapped.execute("test").unsafeRunSync()
-
-    result shouldBe Right("success: test")
-=======
-    
-    whenReady(fallbackWrapped.execute("test")) { result =>
-      result shouldBe Right("success: test")
-    }
->>>>>>> f05d9ad (addressed the comments)
-=======
 
     whenReady(fallbackWrapped.execute("test"))(result => result shouldBe Right("success: test"))
->>>>>>> a2539cb (test 1)
   }
 
   "Policies.withFallback" should "return primary error when both fail" in {
@@ -220,19 +119,7 @@ class PoliciesSpec extends AnyFlatSpec with Matchers with ScalaFutures {
     }
 
     val fallbackWrapped = Policies.withFallback(primaryAgent, fallbackAgent)
-<<<<<<< HEAD
-<<<<<<< HEAD
 
-    val result = fallbackWrapped.execute("test").unsafeRunSync()
-
-    result.isLeft shouldBe true
-    val error = result.left.get.asInstanceOf[OrchestrationError.NodeExecutionError]
-    error.nodeId shouldBe "primary" // Should return primary error
-=======
-    
-=======
-
->>>>>>> a2539cb (test 1)
     whenReady(fallbackWrapped.execute("test")) { result =>
       result.isLeft shouldBe true
       val error = result.swap
@@ -240,7 +127,6 @@ class PoliciesSpec extends AnyFlatSpec with Matchers with ScalaFutures {
         .asInstanceOf[OrchestrationError.NodeExecutionError]
       error.nodeId shouldBe "primary" // Should return primary error
     }
->>>>>>> f05d9ad (addressed the comments)
   }
 
   "Policies.withPolicies" should "combine multiple policies correctly" in {
@@ -256,32 +142,7 @@ class PoliciesSpec extends AnyFlatSpec with Matchers with ScalaFutures {
     }
 
     val fallbackAgent = Agent.fromFunction[String, String]("fallback")(s => Right(s"fallback: $s"))
-<<<<<<< HEAD
-<<<<<<< HEAD
 
-    TestControl
-      .executeEmbed {
-        policyAttempts = 0 // Reset counter
-
-        val enhancedAgent = Policies.withPolicies(
-          testAgent,
-          retry = Some((3, 10.millis)),
-          timeout = Some(1.second),
-          fallback = Some(fallbackAgent)
-        )
-
-        enhancedAgent.execute("test").map { result =>
-          result.isRight shouldBe true
-          result.getOrElse("") should include("success: test")
-          policyAttempts shouldBe 3
-        }
-      }
-      .unsafeRunSync()
-=======
-    
-=======
-
->>>>>>> a2539cb (test 1)
     policyAttempts = 0 // Reset counter
 
     val enhancedAgent = Policies.withPolicies(
@@ -296,7 +157,6 @@ class PoliciesSpec extends AnyFlatSpec with Matchers with ScalaFutures {
       result.getOrElse("") should include("success: test")
       policyAttempts shouldBe 3
     }
->>>>>>> f05d9ad (addressed the comments)
   }
 
   "Policies.withPolicies" should "use fallback when retries are exhausted" in {
@@ -311,22 +171,8 @@ class PoliciesSpec extends AnyFlatSpec with Matchers with ScalaFutures {
       retry = Some((2, 1.milli)),
       fallback = Some(fallbackAgent)
     )
-<<<<<<< HEAD
-<<<<<<< HEAD
-
-    val result = enhancedAgent.execute("test").unsafeRunSync()
-
-    result shouldBe Right("fallback: test")
-=======
-    
-    whenReady(enhancedAgent.execute("test")) { result =>
-      result shouldBe Right("fallback: test")
-    }
->>>>>>> f05d9ad (addressed the comments)
-=======
 
     whenReady(enhancedAgent.execute("test"))(result => result shouldBe Right("fallback: test"))
->>>>>>> a2539cb (test 1)
   }
 
   "Policy composition" should "have correct ordering (timeout -> retry -> fallback)" in {
@@ -339,29 +185,7 @@ class PoliciesSpec extends AnyFlatSpec with Matchers with ScalaFutures {
     }
 
     val fallbackAgent = Agent.fromFunction[String, String]("fallback")(s => Right(s"fallback: $s"))
-<<<<<<< HEAD
-<<<<<<< HEAD
 
-    TestControl
-      .executeEmbed {
-        val enhancedAgent = Policies.withPolicies(
-          slowAgent,
-          retry = Some((2, 10.millis)),
-          timeout = Some(50.millis), // Shorter than agent execution time
-          fallback = Some(fallbackAgent)
-        )
-
-        enhancedAgent.execute("test").map { result =>
-          // Should timeout on each retry attempt, then use fallback
-          result shouldBe Right("fallback: test")
-        }
-      }
-      .unsafeRunSync()
-=======
-    
-=======
-
->>>>>>> a2539cb (test 1)
     val enhancedAgent = Policies.withPolicies(
       slowAgent,
       retry = Some((2, 10.millis)),
@@ -373,6 +197,5 @@ class PoliciesSpec extends AnyFlatSpec with Matchers with ScalaFutures {
       // Should timeout on each retry attempt, then use fallback
       result shouldBe Right("fallback: test")
     }
->>>>>>> f05d9ad (addressed the comments)
   }
 }
