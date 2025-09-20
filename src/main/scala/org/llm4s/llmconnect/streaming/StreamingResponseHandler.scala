@@ -109,7 +109,11 @@ class OpenAIStreamingHandler extends BaseStreamingResponseHandler {
       }
       .toEither
       .left
-      .map(e => ServiceError(500, "openai", s"Error processing OpenAI stream: ${e.getMessage}"))
+      .map { e =>
+        val error = ServiceError(500, "openai", s"Error processing OpenAI stream: ${e.getMessage}")
+        handleError(error)
+        error
+      }
 
   private def parseOpenAIChunk(json: Value): Option[StreamedChunk] =
     Try {
@@ -200,7 +204,11 @@ class AnthropicStreamingHandler extends BaseStreamingResponseHandler {
       }
       .toEither
       .left
-      .map(e => ServiceError(500, "anthropic", s"Error processing Anthropic stream: ${e.getMessage}"))
+      .map { e =>
+        val error = ServiceError(500, "anthropic", s"Error processing Anthropic stream: ${e.getMessage}")
+        handleError(error)
+        error
+      }
 
   private def parseAnthropicDelta(json: Value): Option[StreamedChunk] =
     Try {
