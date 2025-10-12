@@ -18,7 +18,7 @@ object Versions {
   val hikariCP = "5.1.0"
 
   val azureOpenAI = "1.0.0-beta.16"
-  val anthropic   = "2.2.0"
+  val anthropic   = "2.8.1"
   val jtokkit     = "1.1.0"
   val requests    = "0.9.0"
   val websocket   = "1.6.0"

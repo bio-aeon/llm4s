@@ -233,13 +233,19 @@ curl https://api.anthropic.com/v1/messages \
       case UserMessage(content) =>
         paramsBuilder.addUserMessage(content)
 
-      case AssistantMessage(content, _) =>
-        paramsBuilder.addAssistantMessage(content.getOrElse(""))
+      case AssistantMessage(contentOpt, toolCalls) =>
+        // For AssistantMessages with tool calls, we skip sending them back to Anthropic
+        // The tool results will be sent as ToolMessages, which Anthropic converts to user messages
+        if (toolCalls.isEmpty) {
+          // Only send AssistantMessages without tool calls
+          paramsBuilder.addAssistantMessage(contentOpt.getOrElse(""))
+        }
+      // If there are tool calls, we don't send this message - Anthropic will infer it from the tool results
 
-      case ToolMessage(toolCallId, content) =>
-        // Anthropic doesn't have a direct equivalent to tool messages
-        // We'll add it as a user message with a prefix
-        paramsBuilder.addUserMessage(s"Tool result for $toolCallId: $content")
+      case ToolMessage(content, toolCallId) =>
+        // Anthropic API expects tool results to be sent in user messages
+        // We prefix the content to make it clear this is a tool result
+        paramsBuilder.addUserMessage(s"[Tool result for $toolCallId]: $content")
     }
 
     // Add a default system message if none was provided
